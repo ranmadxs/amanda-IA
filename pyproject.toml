@@ -8,6 +8,9 @@ authors = ["Edgar Sánchez <edgar.sanchez@mercadolibre.cl>"]
 python = "^3.11"
 transformers = "^4.42.3"
 coverage = "^7.5.4"
+tensorflow = "^2.16.2"
+torch = "2.2.2"
+accelerate = "^0.31.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^8.2.2"

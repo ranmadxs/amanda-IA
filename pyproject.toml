@@ -3,14 +3,19 @@ name = "amanda-ia"
 version = "0.1.0"
 description = ""
 authors = ["Edgar Sánchez <edgar.sanchez@mercadolibre.cl>"]
+packages = [{include = "amanda_ia"}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
-transformers = "^4.42.3"
 coverage = "^7.5.4"
 tensorflow = "^2.16.2"
 torch = "2.2.2"
 accelerate = "^0.31.0"
+datasets = "^2.20.0"
+tf-keras = "2.16.0"
+pytesseract = "^0.3.10"
+transformers = "4.42.0"
+aia_utils = "^0.2.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^8.2.2"

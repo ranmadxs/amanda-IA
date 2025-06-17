@@ -264,17 +264,51 @@ async def chat(request: ChatRequest):
         )
         
         # Decodificar la respuesta
-        response_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        response_text = tokenizer.decode(
+            outputs[0],
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=True,
+            spaces_between_special_tokens=False
+        )
         
-        # Limpiar la respuesta de tags HTML
-        soup = BeautifulSoup(response_text, 'html.parser')
-        clean_text = soup.get_text(separator=' ', strip=True)
+        logger.debug(f"Response text before cleaning: {response_text}")
         
-        # Limpiar espacios múltiples y líneas vacías
-        clean_text = ' '.join(clean_text.split())
+        # Parsear la respuesta por roles
+        lines = response_text.strip().split('\n')
+        roles_and_messages = []
+        current_role = None
+        current_message = []
         
-        logger.debug(f"Response generated and cleaned. Length: {len(clean_text)} characters")
-        return ChatResponse(response=clean_text)
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            if line.lower() in ['system', 'user', 'assistant']:
+                # Si teníamos un rol anterior, guardamos su mensaje
+                if current_role and current_message:
+                    roles_and_messages.append((current_role, ' '.join(current_message)))
+                current_role = line.lower()
+                current_message = []
+            else:
+                current_message.append(line)
+        
+        # Agregar el último rol y mensaje
+        if current_role and current_message:
+            roles_and_messages.append((current_role, ' '.join(current_message)))
+        
+        # Obtener solo la respuesta del asistente
+        assistant_response = None
+        for role, message in roles_and_messages:
+            if role == 'assistant':
+                assistant_response = message
+                break
+        
+        if not assistant_response:
+            assistant_response = response_text
+            
+        logger.debug(f"Final assistant response: {assistant_response}")
+        return ChatResponse(response=assistant_response)
     except Exception as e:
         logger.error(f"Error processing chat request: {str(e)}")
         logger.error(traceback.format_exc())

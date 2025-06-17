@@ -52,11 +52,11 @@ def test_ia():
     print("test_ia")
     # Load the model and tokenizer
     model = AutoModelForCausalLM.from_pretrained(
-        "Qwen/Qwen2-0.5B-Instruct",
+        "HuggingFaceH4/zephyr-7b-beta",
         torch_dtype="auto",
         device_map="auto"
     )
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2-0.5B-Instruct")
+    tokenizer = AutoTokenizer.from_pretrained("HuggingFaceH4/zephyr-7b-beta")
 
     # Define the conversation and function to be used
     prompt = "quiero saber el código 000278k"

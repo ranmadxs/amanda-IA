@@ -71,17 +71,8 @@ def multiply(a: float, b: float):
 # poetry run pytest tests/test_aia_functions.py::test_def2 -s
 def test_def2():
 
-    checkpoint = "Qwen/Qwen2-0.5B-Instruct"
     checkpoint = "HuggingFaceH4/zephyr-7b-beta"
-    checkpoint = "NousResearch/Hermes-2-Pro-Llama-3-8B"
-    checkpoint = "Qwen/Qwen2-0.5B-Instruct"
-
     tokenizer = AutoTokenizer.from_pretrained(checkpoint)
-    #model = AutoModelForCausalLM.from_pretrained(
-    #    "Qwen/Qwen2-0.5B-Instruct",
-    #    torch_dtype="auto",
-    #    device_map="auto"
-    #)
     model = AutoModelForCausalLM.from_pretrained(checkpoint, torch_dtype=torch.bfloat16, device_map="auto")
     #tools = [get_current_temperature, get_current_wind_speed]
     messages = [
@@ -212,9 +203,7 @@ def test_functions():
 #NOK  ----> responde raro
 # poetry run pytest tests/test_aia_functions.py::test_def -s
 def test_def():
-    checkpoint = "Qwen/Qwen2-0.5B-Instruct"
     checkpoint = "HuggingFaceH4/zephyr-7b-beta"
-    #checkpoint = "NousResearch/Hermes-2-Pro-Llama-3-8B"
     tokenizer = AutoTokenizer.from_pretrained(checkpoint)
     model = AutoModelForCausalLM.from_pretrained(
         checkpoint,
@@ -239,15 +228,7 @@ def test_def():
 def test_tools():
     print("test_tools")
     # Create a list of tools to test
-    model = AutoModelForCausalLM.from_pretrained(
-        "Qwen/Qwen2-0.5B-Instruct",
-        torch_dtype="auto",
-        device_map="auto"
-    )
-
     checkpoint = "HuggingFaceH4/zephyr-7b-beta"
-    checkpoint = "Qwen/Qwen2-0.5B-Instruct"
-
     tokenizer = AutoTokenizer.from_pretrained(checkpoint)
     model = AutoModelForCausalLM.from_pretrained(checkpoint)
 

@@ -4,7 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 #OK
 # poetry run pytest tests/test_datasets.py::test_dataset -s
 def test_dataset():
-    checkpoint = "Qwen/Qwen2-0.5B-Instruct"
+    checkpoint = "HuggingFaceH4/zephyr-7b-beta"
     
     tokenizer = AutoTokenizer.from_pretrained(checkpoint)
     chat1 = [
@@ -30,7 +30,7 @@ def test_exe():
     print("test_exe")
     device = "cpu"
     dataset = test_dataset()
-    checkpoint = "Qwen/Qwen2-0.5B-Instruct"
+    checkpoint = "HuggingFaceH4/zephyr-7b-beta"
     tokenizer = AutoTokenizer.from_pretrained(checkpoint)
     model = AutoModelForCausalLM.from_pretrained(checkpoint)
     messages = [{"role": "user", "content": "¿cuál es más grande PepitoLolazo o PepitoSolito?. Dame la respuesta por favor "}]

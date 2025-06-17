@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup
 import json
 import re
 import traceback
+import datetime
 
 config_logger()
 logger = logging.getLogger(__name__)
@@ -191,6 +192,10 @@ async def chat(request: ChatRequest):
     try:
         logger.debug(f"Received chat request: {request.message}")
         
+        # Obtener la fecha actual
+        current_date = datetime.datetime.now().strftime("%d de %B de %Y")
+        current_date_iso = datetime.datetime.now().strftime("%Y/%m/%d")
+        
         # Detectar URLs en el mensaje
         url_pattern = r'https?://\S+'
         urls = re.findall(url_pattern, request.message)
@@ -212,7 +217,7 @@ async def chat(request: ChatRequest):
                 system_message += f"Content from {url}:\n{content}\n\n"
             
             # Truncar el mensaje del sistema si es muy largo
-            max_system_length = 64000  # Aumentado de 15000 a 64000
+            max_system_length = 32000  # Reducido para mejor rendimiento
             if len(system_message) > max_system_length:
                 logger.debug(f"Sistema: Mensaje truncado de {len(system_message)} a {max_system_length} caracteres")
                 system_message = system_message[:max_system_length] + "... [contenido truncado]"
@@ -222,10 +227,29 @@ async def chat(request: ChatRequest):
                 {"role": "user", "content": request.message}
             ]
         else:
+            system_message = f"""Eres un asistente útil. La fecha de hoy es {current_date} ({current_date_iso}).
+
+INSTRUCCIONES CRÍTICAS:
+1. Cuando te pregunten por la fecha, DEBES responder ÚNICAMENTE con la fecha exacta proporcionada arriba
+2. NO agregues saludos, explicaciones ni información adicional
+3. NO inventes fechas ni uses formatos diferentes
+4. NO menciones ubicaciones ni otra información no relacionada
+
+Ejemplo:
+Usuario: "que fecha es hoy?"
+Asistente: "{current_date}"
+
+Usuario: "what's today's date?"
+Asistente: "{current_date_iso}"
+
+Recuerda: Mantén las respuestas cortas y directas. Usa SOLO la fecha exacta proporcionada."""
+            
             messages = [
-                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "system", "content": system_message},
                 {"role": "user", "content": request.message}
             ]
+            
+        logger.debug(f"System message: {system_message}")
         
         # Preparar el prompt
         prompt = tokenizer.apply_chat_template(
@@ -235,32 +259,28 @@ async def chat(request: ChatRequest):
         )
         
         logger.debug(f"Prompt preparado. Longitud: {len(prompt)} caracteres")
+        logger.debug(f"Prompt: {prompt}")
         
         # Tokenizar el prompt
         inputs = tokenizer(
             prompt,
             return_tensors="pt",
             truncation=True,
-            max_length=8192,
+            max_length=1024,  # Reducido para mejor rendimiento
             padding=True
         )
-        
-        # Mover inputs a GPU si está disponible
-        if torch.cuda.is_available():
-            inputs = {k: v.to("cuda") for k, v in inputs.items()}
         
         logger.debug("Generating response...")
         outputs = model.generate(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
             pad_token_id=tokenizer.pad_token_id,
-            max_new_tokens=2048,  # Aumentado de 1024 a 2048
-            do_sample=True,
-            temperature=0.7,
-            top_p=0.9,
-            repetition_penalty=1.2,  # Añadido para evitar repeticiones
-            length_penalty=1.0,  # Añadido para controlar la longitud
-            no_repeat_ngram_size=3  # Añadido para evitar repeticiones de frases
+            max_new_tokens=50,  # Reducido aún más para forzar respuestas muy cortas
+            do_sample=False,  # Desactivar sampling para respuestas más deterministas
+            temperature=1.0,  # Temperatura neutral
+            repetition_penalty=1.0,  # Sin penalización de repetición
+            length_penalty=1.0,  # Sin penalización de longitud
+            no_repeat_ngram_size=0  # Sin restricción de n-gramas
         )
         
         # Decodificar la respuesta

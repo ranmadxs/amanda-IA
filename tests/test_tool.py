@@ -41,6 +41,7 @@ def test_functions():
     device = "cpu"
     checkpoint = "Qwen/Qwen2-0.5B-Instruct"
     checkpoint = "devanshamin/Qwen2-1.5B-Instruct-Function-Calling-v1"
+    #checkpoint = "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
     tokenizer = AutoTokenizer.from_pretrained(checkpoint)
     model = AutoModelForCausalLM.from_pretrained(checkpoint, torch_dtype=torch.bfloat16, device_map="auto")
     print("test functions")

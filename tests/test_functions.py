@@ -7,18 +7,27 @@ from .tools import get_company_info
 from transformers.utils import get_json_schema
 from .tools import get_current_temperature, get_current_wind_speed, multiply, current_time
 from amanda_ia.aia import AIAService
+import logging
+from aia_utils.logs_cfg import config_logger
+config_logger()
+logger = logging.getLogger(__name__)
+import os
 
 ##### Para borrar modelos ~/.cache/huggingface/hub/
-##### Mañana hacer pruebas en español con las funciones!
 
 model_id = "devanshamin/Qwen2-1.5B-Instruct-Function-Calling-v1"
 #model_id = "Qwen/Qwen2-0.5B-Instruct"
+#model_id = "gpt2"
 model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.float32, device_map="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
+# Asegúrate de que el modelo tiene un token de relleno adecuado
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
 def inference(prompt: str) -> str:
   model_inputs = tokenizer([prompt], return_tensors="pt").to('cpu')
-  generated_ids = model.generate(model_inputs.input_ids, max_new_tokens=512)
+  generated_ids = model.generate(model_inputs.input_ids, attention_mask=model_inputs.attention_mask, max_new_tokens=512)
   generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)]
   response = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
   return response
@@ -27,8 +36,6 @@ def inference(prompt: str) -> str:
 #prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 #response = inference(prompt)
 #print(response)
-
-
 
 def get_prompt(user_input: str, tools: List[Dict] | None = None):
   #prompt = 'Extract the information from the following - \n{}'.format(user_input)
@@ -49,6 +56,7 @@ def execute_function(input_text: str, tools: List[Dict] | None = None) -> str:
     print("The start time is :", start)
     prompt = get_prompt(input_text, tools=tools)
     response = inference(prompt)
+    response = response.replace("```json\n", "").replace("```", "")
     print("The difference of time is :", 
               timeit.default_timer() - start)
     return response
@@ -92,16 +100,25 @@ def test_functions3():
     response = execute_function(input_text, tools)
     print(response)
 
-
+## Excelente y muy bueno a futuro ocupar #####
 #poetry run pytest tests/test_functions.py::test_functions4 -s
 def test_functions4():
     input_text = "enciende la bomba de agua en el invernadero por favor"
-    print("test functions4")
+    input_text = "puedes encender la bomba de agua del invernadero"
+    #input_text = "enciende la luz en el invernadero"
+    #input_text = "enciende las luces del invernadero"
+    input_text = "apaga las luces del invernadero por favor"
+    print("test functions5")
 
-    aiaSvc = AIAService("topic_producer", "topic_consumer", "version")
+    aiaSvc = AIAService(os.environ['TEST_CLOUDKAFKA_TOPIC_PRODUCER'], os.environ['CLOUDKAFKA_TOPIC_CONSUMER'], "version")
     aiaExecutorSchema = get_json_schema(aiaSvc.execute)
     print(aiaExecutorSchema)
     tools = [aiaExecutorSchema]
     response = execute_function(input_text, tools)
-    print(response)
+    jsonData = json.loads(response)
+    logger.info(input_text)
+    logger.debug(jsonData)
     aiaSvc.send_mqtt_message(response)
+    #input_text = "esto es un mensaje de prueba de error"
+    #response = execute_function(input_text, tools)
+    #print(response)

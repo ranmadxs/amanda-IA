@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "amanda-ia"
-version = "0.3.1"
+version = "0.3.3"
 description = "Amanda-IA Chat API"
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"

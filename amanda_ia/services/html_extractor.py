@@ -15,14 +15,6 @@ class HTMLExtractor:
         if response.status_code == 200:
             html_content = response.text  # Usar text en lugar de json()
             self.logger.debug(f"HTML obtenido correctamente. Longitud: {len(html_content)}")
-            
-            # Guardar HTML original para debug
-            try:
-                with open('html_original_debug_2.html', 'w', encoding='utf-8') as f:
-                    f.write(html_content)
-                self.logger.debug("HTML original guardado en html_original_debug_2.html")
-            except Exception as e:
-                self.logger.error(f"Error al guardar HTML original: {str(e)}")
         else:
             self.logger.error(f"Error al obtener HTML. Status code: {response.status_code}")
             return f"Error al obtener HTML. Status code: {response.status_code}"

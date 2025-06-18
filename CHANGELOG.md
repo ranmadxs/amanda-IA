@@ -1,3 +1,28 @@
+## [0.4.1] - 2025-06-18
+
+### Changed
+- 🔄 **Refactorización mayor del código** - Eliminación completa de duplicaciones
+- 🔄 **Centralización de lógica** - Toda la lógica de procesamiento movida a `ai_models.py`
+- 🔄 **Simplificación de API** - Daemon y tests ahora solo pasan strings al servicio
+- 🔄 **Nuevo método `chat()`** - API simplificada que recibe solo `user_message: str`
+- 🔄 **Métodos privados organizados** - Lógica separada en métodos específicos:
+  - `_get_system_message_with_date()` - Contexto con fecha
+  - `_detect_and_extract_urls()` - Procesamiento de URLs
+  - `_create_system_message_with_urls()` - Contexto para URLs
+  - `_create_messages_for_model()` - Orquestación de mensajes
+  - `_generate_response_internal()` - Generación interna
+
+### Removed
+- 🗑️ **Duplicaciones eliminadas** - Lógica de fecha, URLs y extracción HTML centralizada
+- 🗑️ **Imports innecesarios** - transformers, torch, requests, bs4 removidos del daemon
+- 🗑️ **Código duplicado** - Función `get_system_message()` removida de tests
+- 🗑️ **Lógica redundante** - Detección de URLs y creación de contexto simplificada
+
+### Fixed
+- 🐛 **Mantenibilidad mejorada** - Cambios solo necesarios en un lugar
+- 🐛 **Compatibilidad preservada** - Método `generate_response()` mantiene funcionalidad legacy
+- 🐛 **Tests simplificados** - Sin lógica duplicada, solo llamadas a `ai_models.chat()`
+
 ## [0.4.0] - 2025-01-27
 
 ### Added

@@ -2,6 +2,7 @@ import os
 import torch
 import logging
 import re
+import datetime
 from typing import List, Dict, Any
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from aia_utils.toml_utils import getVersion
@@ -18,9 +19,6 @@ os.environ['HF_HUB_OFFLINE'] = '1'
 os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
 os.environ['HF_HUB_DISABLE_EXPERIMENTAL_WARNING'] = '1'
 os.environ['HF_HUB_DISABLE_PROGRESS_BARS'] = '1'
-
-
-
 
 class AIAModels:
     _instance = None
@@ -51,6 +49,83 @@ class AIAModels:
             
             self._initialized = True
             self.logger.info("Modelos de IA inicializados correctamente")
+    
+    def _get_system_message_with_date(self):
+        """Obtiene el mensaje del sistema con la fecha actual."""
+        current_date = datetime.datetime.now().strftime("%d de %B de %Y")
+        current_date_iso = datetime.datetime.now().strftime("%Y/%m/%d")
+        
+        return f"""Eres un asistente útil. La fecha de hoy es {current_date} ({current_date_iso}).
+
+INSTRUCCIONES CRÍTICAS:
+1. Cuando te pregunten por la fecha, DEBES responder ÚNICAMENTE con la fecha exacta proporcionada arriba
+2. NO agregues saludos, explicaciones ni información adicional
+3. NO inventes fechas ni uses formatos diferentes
+4. NO menciones ubicaciones ni otra información no relacionada
+
+Ejemplo:
+Usuario: "que fecha es hoy?"
+Asistente: "{current_date}"
+
+Usuario: "what's today's date?"
+Asistente: "{current_date_iso}"
+
+Recuerda: Mantén las respuestas cortas y directas. Usa SOLO la fecha exacta proporcionada.""", current_date, current_date_iso
+    
+    def _detect_and_extract_urls(self, user_message: str) -> Dict[str, str]:
+        """Detecta URLs en el mensaje y extrae su contenido."""
+        url_pattern = r'https?://\S+'
+        urls = re.findall(url_pattern, user_message)
+        
+        if not urls:
+            return {}
+        
+        self.logger.debug(f"URLs detectadas en el mensaje: {urls}")
+        url_contents = {}
+        
+        for url in urls:
+            try:
+                content = self.html_extractor.get_wahapedia_content(url)
+                url_contents[url] = content
+            except Exception as e:
+                self.logger.error(f"Error al extraer contenido de {url}: {str(e)}")
+                url_contents[url] = f"Error al extraer contenido: {str(e)}"
+        
+        return url_contents
+    
+    def _create_system_message_with_urls(self, url_contents: Dict[str, str]) -> str:
+        """Crea el mensaje del sistema con contenido de URLs."""
+        system_message = "You are a helpful assistant that can fetch and analyze content from URLs. "
+        system_message += "I will provide you with the content of the URLs mentioned in the user's message. "
+        system_message += "Please analyze this content and provide a detailed response based on it.\n\n"
+        
+        for url, content in url_contents.items():
+            system_message += f"Content from {url}:\n{content}\n\n"
+        
+        # Truncar el mensaje del sistema si es muy largo
+        max_system_length = 32000
+        if len(system_message) > max_system_length:
+            self.logger.debug(f"Sistema: Mensaje truncado de {len(system_message)} a {max_system_length} caracteres")
+            system_message = system_message[:max_system_length] + "... [contenido truncado]"
+        
+        return system_message
+    
+    def _create_messages_for_model(self, user_message: str) -> List[Dict[str, str]]:
+        """Crea la lista de mensajes para el modelo basado en el mensaje del usuario."""
+        # Detectar y extraer contenido de URLs
+        url_contents = self._detect_and_extract_urls(user_message)
+        
+        if url_contents:
+            # Si hay URLs, crear mensaje del sistema con contenido de URLs
+            system_message = self._create_system_message_with_urls(url_contents)
+        else:
+            # Si no hay URLs, usar mensaje del sistema con fecha
+            system_message, _, _ = self._get_system_message_with_date()
+        
+        return [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": user_message}
+        ]
     
     def _load_default_model(self):
         """Carga el modelo por defecto."""
@@ -211,12 +286,42 @@ class AIAModels:
             self.logger.warning(f"Tipo de modelo no reconocido: {model_type}")
             return None
     
-    def generate_response(self, prompt_or_messages, max_length: int = 512, model_type: str = 'default') -> str:
+    def chat(self, user_message: str, max_length: int = 512, model_type: str = 'default') -> str:
         """
-        Genera una respuesta usando el modelo especificado.
+        Método principal para chat que recibe solo un string del usuario.
+        Maneja internamente toda la lógica de creación de contexto y procesamiento.
         
         Args:
-            prompt_or_messages: El prompt de entrada (string) o lista de mensajes
+            user_message: El mensaje del usuario
+            max_length: Longitud máxima de la respuesta
+            model_type: Tipo de modelo a usar ('default')
+            
+        Returns:
+            La respuesta generada
+        """
+        try:
+            # Crear mensajes para el modelo
+            messages = self._create_messages_for_model(user_message)
+            
+            # Procesar URLs de Wahapedia si están presentes
+            processed_messages = self._extract_wahapedia_content(messages)
+            
+            # Log debug para ver qué mensajes se envían al modelo
+            self.logger.debug(f"Mensajes procesados que se envían al modelo: {processed_messages}")
+            
+            # Generar respuesta usando el método interno
+            return self._generate_response_internal(processed_messages, max_length, model_type)
+            
+        except Exception as e:
+            self.logger.error(f"Error en chat: {str(e)}")
+            return "Lo siento, hubo un error al procesar tu mensaje."
+    
+    def _generate_response_internal(self, messages: List[Dict[str, str]], max_length: int = 512, model_type: str = 'default') -> str:
+        """
+        Método interno para generar respuesta a partir de mensajes ya procesados.
+        
+        Args:
+            messages: Lista de mensajes ya procesados
             max_length: Longitud máxima de la respuesta
             model_type: Tipo de modelo a usar ('default')
             
@@ -231,23 +336,12 @@ class AIAModels:
                 self.logger.error("Modelo o tokenizer no disponible")
                 return "Lo siento, hubo un error al generar la respuesta."
             
-            # Preparar el prompt
-            if isinstance(prompt_or_messages, list):
-                # Procesar URLs de Wahapedia si están presentes
-                processed_messages = self._extract_wahapedia_content(prompt_or_messages)
-                
-                # Log debug para ver qué mensajes se envían al modelo
-                self.logger.debug(f"Mensajes procesados que se envían al modelo: {processed_messages}")
-                
-                # Si es una lista de mensajes, usar el chat template
-                prompt = tokenizer.apply_chat_template(
-                    processed_messages,
-                    tokenize=False,
-                    add_generation_prompt=True
-                )
-            else:
-                # Si es un string, usarlo directamente
-                prompt = str(prompt_or_messages)
+            # Usar el chat template
+            prompt = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
             
             # Tokenizar el input
             inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048)
@@ -284,6 +378,27 @@ class AIAModels:
         except Exception as e:
             self.logger.error(f"Error al generar respuesta: {str(e)}")
             return "Lo siento, hubo un error al generar la respuesta."
+    
+    def generate_response(self, prompt_or_messages, max_length: int = 512, model_type: str = 'default') -> str:
+        """
+        Método legacy que mantiene compatibilidad con el código existente.
+        Si recibe un string, usa el nuevo método chat().
+        Si recibe una lista, usa el método interno.
+        
+        Args:
+            prompt_or_messages: El prompt de entrada (string) o lista de mensajes
+            max_length: Longitud máxima de la respuesta
+            model_type: Tipo de modelo a usar ('default')
+            
+        Returns:
+            La respuesta generada
+        """
+        if isinstance(prompt_or_messages, str):
+            # Si es un string, usar el nuevo método chat
+            return self.chat(prompt_or_messages, max_length, model_type)
+        else:
+            # Si es una lista, usar el método interno (para compatibilidad)
+            return self._generate_response_internal(prompt_or_messages, max_length, model_type)
     
     def get_version(self) -> str:
         """Obtiene la versión del módulo."""

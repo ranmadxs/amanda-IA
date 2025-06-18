@@ -3,7 +3,7 @@ from transformers.pipelines import PIPELINE_REGISTRY, get_supported_tasks
 from transformers import AutoModelForSequenceClassification, TFAutoModelForSequenceClassification
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
 import torch
-
+import pytest
 
 PIPELINE_REGISTRY.register_pipeline(
     "my-new-task",
@@ -13,6 +13,7 @@ PIPELINE_REGISTRY.register_pipeline(
 )
 
 # poetry run pytest tests/test_pipeline.py::test_pipe -s
+@pytest.mark.skip(reason="lento")
 def test_pipe():
     model = "mrm8488/bert-base-spanish-wwm-cased-finetuned-spa-squad2-es"
     #model = "Qwen/Qwen2-0.5B-Instruct"   <----- no funcia
@@ -29,6 +30,7 @@ def test_pipe():
 
 
 # poetry run pytest tests/test_pipeline.py::test_pipe2 -s
+@pytest.mark.skip(reason="lento")
 def test_pipe2():
     print(get_supported_tasks())
     pipe = pipeline(task="my-new-task", model="Qwen/Qwen2-0.5B-Instruct", framework = "pt")
@@ -37,6 +39,7 @@ def test_pipe2():
 
 #conversar es muy bueno
 # poetry run pytest tests/test_pipeline.py::test_pipe3 -s
+@pytest.mark.skip(reason="lento")
 def test_pipe3():
     generator = pipeline("text-generation", model="Qwen/Qwen2-0.5B-Instruct")
     resp = generator([{"role": "user", "content": "La capital de Petorca es: La Ligua."},

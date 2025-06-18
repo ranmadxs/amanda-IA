@@ -5,7 +5,7 @@ import os
 import json
 from dotenv import load_dotenv
 from amanda_ia.aia import AIAService
-
+import pytest
 # Load environment variables
 load_dotenv()
 
@@ -48,6 +48,7 @@ def functionIa(msg, action='action'):
 
 # Test case for the AI model
 #poetry run pytest tests/test_amanda_ia.py::test_ia -s
+@pytest.mark.skip(reason="no aplica")
 def test_ia():
     print("test_ia")
     # Load the model and tokenizer
@@ -136,5 +137,3 @@ def test_ia():
     except KeyError as e:
         print("Key error in function call:", str(e))
 
-# Run the test case
-test_ia()

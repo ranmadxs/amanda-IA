@@ -1,4 +1,3 @@
-from transformers import Tool
 from huggingface_hub import list_models
 import datetime
 
@@ -28,7 +27,7 @@ get_company_info = {
 
 def current_time() -> str:
     """Obtener la hora local actual."""
-    return str(datetime.now())
+    return str(datetime.datetime.now())
 
 def multiply(a: float, b: float) -> float:
     """
@@ -64,16 +63,13 @@ def get_current_wind_speed(location: str) -> float:
     return 6.  # A real function should probably actually get the wind speed!
 
 
-class HFModelDownloadsTool(Tool):
+class HFModelDownloadsTool:
     name = "model_download_counter"
     description = (
         "This is a tool that returns the most downloaded model of a given task on the Hugging Face Hub. "
         "It takes the name of the category (such as text-classification, depth-estimation, etc), and "
         "returns the name of the checkpoint."
     )
-
-    inputs = ["text"]
-    outputs = ["text"]
 
     def __call__(self, task: str):
         model = next(iter(list_models(filter=task, sort="downloads", direction=-1)))

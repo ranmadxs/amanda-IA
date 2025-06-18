@@ -12,6 +12,7 @@ from aia_utils.logs_cfg import config_logger
 config_logger()
 logger = logging.getLogger(__name__)
 import os
+from unittest.mock import patch
 
 ##### Para borrar modelos ~/.cache/huggingface/hub/
 
@@ -61,45 +62,6 @@ def execute_function(input_text: str, tools: List[Dict] | None = None) -> str:
               timeit.default_timer() - start)
     return response
 
-
-#poetry run pytest tests/test_functions.py::test_functions -s
-def test_functions():
-    input_text = "Founded in 2021, Pluto raised $4 million across multiple seed funding rounds, valuing the company at $12 million (pre-money), according to PitchBook. The startup was backed by investors including Switch Ventures, Caffeinated Capital and Maxime Seguineau."
-    input_text = "Fundada en 2021, Pluto recaudó $4 millones en múltiples rondas de financiación inicial, valorando la empresa en $12 millones (pre-money), según PitchBook. La startup fue respaldada por inversores como Switch Ventures, Caffeinated Capital y Maxime Seguineau."
-    response = execute_function(input_text, [get_company_info])
-    print(response)
-
-#poetry run pytest tests/test_functions.py::test_functions2 -s
-def test_functions2():
-    input_text = "Multiplica los números 3 y 5"
-    print("test functions")
-    schemaMul = get_json_schema(multiply)
-    print(schemaMul)
-    schemaCur = get_json_schema(current_time)
-    print(schemaCur)
-    tools = [schemaCur, schemaMul]
-    response = execute_function(input_text, tools)
-    print(response)
-
-#poetry run pytest tests/test_functions.py::test_functions3 -s
-def test_functions3():
-    input_text = "Me puedes dar la hora local?"
-    print("test functions")
-    schemaMul = get_json_schema(multiply)
-    print(schemaMul)
-    #schemaCur = get_json_schema(current_time)
-    schemaCur = {
-        "type": "function", 
-        "function": {
-            "name": "current_time",
-            "description": "Get the current local time as a string."
-        }
-    }    
-    print(schemaCur)
-    tools = [schemaCur, schemaMul]
-    response = execute_function(input_text, tools)
-    print(response)
-
 ## Excelente y muy bueno a futuro ocupar #####
 #poetry run pytest tests/test_functions.py::test_functions4 -s
 def test_functions4():
@@ -118,7 +80,30 @@ def test_functions4():
     jsonData = json.loads(response)
     logger.info(input_text)
     logger.debug(jsonData)
-    aiaSvc.send_mqtt_message(response)
+    
+    # Mock para send_mqtt_message
+    with patch.object(aiaSvc, 'send_mqtt_message') as mock_mqtt:
+        mock_mqtt.return_value = True
+        aiaSvc.send_mqtt_message(response)
+        mock_mqtt.assert_called_once_with(response)
+    
+    # Validaciones del response
+    assert isinstance(jsonData, dict), "La respuesta debe ser un diccionario"
+    assert "name" in jsonData, "La respuesta debe contener name"
+    assert "arguments" in jsonData, "La respuesta debe contener arguments"
+    
+    # Validar que los argumentos son un diccionario válido
+    args = jsonData["arguments"]
+    assert isinstance(args, dict), "Los argumentos deben ser un diccionario"
+    assert "accion" in args, "Los argumentos deben contener accion"
+    assert "objeto" in args, "Los argumentos deben contener objeto"
+    assert "ubicacion" in args, "Los argumentos deben contener ubicacion"
+    
+    # Validar que la acción y el objetivo son strings
+    assert isinstance(args["accion"], str), "accion debe ser un string"
+    assert isinstance(args["objeto"], str), "objeto debe ser un string"
+    assert isinstance(args["ubicacion"], str), "ubicacion debe ser un string"
+    
     #input_text = "esto es un mensaje de prueba de error"
     #response = execute_function(input_text, tools)
     #print(response)

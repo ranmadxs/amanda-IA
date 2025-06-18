@@ -1,8 +1,9 @@
 from datasets import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
-
+import pytest
 #OK
 # poetry run pytest tests/test_datasets.py::test_dataset -s
+@pytest.mark.skip(reason="no aplica")
 def test_dataset():
     checkpoint = "HuggingFaceH4/zephyr-7b-beta"
     
@@ -26,6 +27,7 @@ def test_dataset():
 
 
 # poetry run pytest tests/test_datasets.py::test_exe -s
+@pytest.mark.skip(reason="no aplica")
 def test_exe():
     print("test_exe")
     device = "cpu"

@@ -129,10 +129,12 @@ class AIAModels:
                     "Eres un asistente útil. A continuación tienes contenido en formato Markdown extraído de una página de Wahapedia. "
                     "Tu tarea es EXTRAER y PRESENTAR las estadísticas que encuentres en el contenido.\n\n"
                     "INSTRUCCIONES ESPECÍFICAS:\n"
-                    "1. Busca las estadísticas en el contenido (M, T, Sv, W, Ld, OC)\n"
-                    "2. Preséntalas en una lista simple\n"
-                    "3. NO inventes, NO hagas suposiciones\n"
-                    "4. Solo usa la información que está en el contenido\n\n"
+                    "1. Busca las estadísticas en el contenido (M, T, Sv, W, Ld, OC, INVULNERABLE SAVE)\n"
+                    "2. Preséntalas en una lista simple con el formato exacto que aparecen\n"
+                    "3. NO inventes, NO hagas suposiciones, NO interpretes\n"
+                    "4. Solo usa la información que está en el contenido\n"
+                    "5. Si no encuentras una estadística, NO la inventes\n"
+                    "6. Responde SOLO con la lista de estadísticas encontradas\n\n"
                     "Contenido a analizar:\n"
                 )
                 for content in wahapedia_content.values():

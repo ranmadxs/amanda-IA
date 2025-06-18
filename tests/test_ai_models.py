@@ -97,7 +97,7 @@ def test_chat_endpoint_wahapedia():
     
     # Mensaje que incluye una URL de Wahapedia
     user_message = (
-        "quiero que revises la siguiente url https://wahapedia.ru/wh40k10ed/factions/space-marines/Lieutenant "
+        "quiero que revises la siguiente url https://wahapedia.ru/wh40k10ed/factions/orks/Ghazghkull-Thraka "
         "y me digas las estadísticas principales"
     )
     
@@ -111,7 +111,7 @@ def test_chat_endpoint_wahapedia():
     response = ai_models.generate_response(messages)
     
     # Verificar la respuesta
-    logger.info("Mensaje de prueba: URL de Wahapedia con Lieutenant")
+    logger.info("Mensaje de prueba: URL de Wahapedia ")
     logger.debug(f"Respuesta del modelo: {response}")
     
     # Verificar propiedades básicas

@@ -1,3 +1,8 @@
+## [0.3.1] - 2025-01-27
+
+### Changed
+- 🔼 Incremento de versión patch y ajustes menores en la extracción de estadísticas Wahapedia
+
 # Changelog
 
 All notable changes to this project will be documented in this file.

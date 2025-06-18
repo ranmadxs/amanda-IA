@@ -9,7 +9,7 @@ class HTMLExtractor:
         self.logger = logging.getLogger(__name__)
         self.http_client = AiaHttpClient()
 
-    def get_html_content(self, url: str, max_length: int = 32000) -> str:
+    def get_wahapedia_content(self, url: str, max_length: int = 32000) -> str:
         # Obtener el HTML
         response = self.http_client.get(url)
         if response.status_code == 200:
@@ -54,8 +54,9 @@ class HTMLExtractor:
         banner_div = soup.find('div', class_='dsBannerWrap')
         if banner_div:
             self.logger.debug("Elemento principal encontrado")
-            # Devolver el HTML del div y su contenido
-            return str(banner_div)
+            # Convertir el HTML a formato Markdown
+            markdown_content = self._html_to_markdown(banner_div)
+            return markdown_content
         else:
             self.logger.warning("No se encontró el elemento principal")
             # Si no se encuentra, devolver el texto limpio
@@ -64,25 +65,45 @@ class HTMLExtractor:
             chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
             text = ' '.join(chunk for chunk in chunks if chunk)
             return text
-
-    def get_url_content(self, url: str, prompt: str = None, max_length: int = 32000) -> str:
-        """
-        Obtiene el contenido de una URL y lo procesa con el modelo de IA si se proporciona un prompt.
+    
+    def _html_to_markdown(self, element):
+        """Convierte elementos HTML específicos de Wahapedia a formato Markdown."""
+        markdown_parts = []
         
-        Args:
-            url: La URL a procesar
-            prompt: El prompt para extraer información específica
-            max_length: Longitud máxima del contenido
+        # Extraer título principal
+        h2_header = element.find('div', class_='dsH2Header')
+        if h2_header:
+            title = h2_header.get_text().strip()
+            if title:
+                markdown_parts.append(f"# {title}")
+        
+        # Extraer estadísticas del perfil
+        profile_wrap = element.find('div', class_='dsProfileWrap')
+        if profile_wrap:
+            markdown_parts.append("\n## Estadísticas del Perfil")
             
-        Returns:
-            str: El contenido procesado o el HTML original
-        """
-        try:
-            # Obtener el HTML original
-            html_content = self.get_html_content(url, max_length)
-            
-            return html_content
-            
-        except Exception as e:
-            self.logger.error(f"Error al procesar la URL {url}: {str(e)}")
-            return f"Error inesperado al procesar la URL {url}: {str(e)}"
+            # Buscar todas las estadísticas
+            char_wraps = profile_wrap.find_all('div', class_='dsCharWrap')
+            for char_wrap in char_wraps:
+                char_name = char_wrap.find('div', class_='dsCharName')
+                char_value = char_wrap.find('div', class_='dsCharValue')
+                
+                if char_name and char_value:
+                    name = char_name.get_text().strip()
+                    value = char_value.get_text().strip()
+                    markdown_parts.append(f"- **{name}**: {value}")
+        
+        # Extraer información del modelo
+        model_base = element.find('span', class_='dsModelBase2')
+        if model_base:
+            model_info = model_base.get_text().strip()
+            if model_info:
+                markdown_parts.append(f"\n**Tamaño del modelo**: {model_info}")
+        
+        # Extraer descripción del tooltip
+        tooltip = element.find('div', class_='tooltip picLegend')
+        if tooltip and tooltip.get('title'):
+            description = tooltip.get('title')
+            markdown_parts.append(f"\n## Descripción\n{description}")
+        
+        return '\n'.join(markdown_parts)

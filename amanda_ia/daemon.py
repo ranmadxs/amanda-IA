@@ -57,7 +57,7 @@ async def chat(request: ChatRequest):
             # Obtener contenido de todas las URLs
             url_contents = {}
             for url in urls:
-                content = html_extractor.get_url_content(url, prompt=request.message)
+                content = html_extractor.get_wahapedia_content(url)
                 url_contents[url] = content
             
             # Agregar el contenido de las URLs al mensaje del sistema

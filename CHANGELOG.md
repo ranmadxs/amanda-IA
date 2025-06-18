@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-06-18
+
+### Added
+- ✨ Integración con Wahapedia para extracción y análisis de contenido
+- ✨ Conversión automática de HTML a Markdown para mejor procesamiento
+- ✨ Detección automática de URLs de Wahapedia en mensajes del usuario
+- ✨ Extracción de estadísticas clave (M, T, Sv, W, Ld, OC) de contenido de Wahapedia
+- ✨ Tests unitarios para el endpoint de chat con análisis de Wahapedia
+
+### Changed
+- 🔄 Renombrado método `get_html_content` a `get_wahapedia_content` para mayor claridad
+- 🔄 Mejora en el prompt del modelo para extracción precisa de estadísticas
+- 🔄 Optimización del procesamiento de contenido web
+
+### Fixed
+- 🐛 Corrección en la extracción de contenido específico de Wahapedia (dsBannerWrap)
+- 🐛 Mejora en el manejo de respuestas del modelo para evitar invención de datos
+
 ## [0.2.0] - 2025-06-18
 
 ### Added

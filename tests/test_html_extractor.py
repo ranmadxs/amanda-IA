@@ -20,7 +20,7 @@ def test_html_content():
     url = "https://wahapedia.ru/wh40k10ed/factions/space-marines/Lieutenant"
     
     # Obtener el contenido
-    content = html_extractor.get_html_content(url)
+    content = html_extractor.get_wahapedia_content(url)
     
     # Verificar la respuesta
     logger.info(f"URL de prueba: {url}")
@@ -51,27 +51,4 @@ def test_html_content():
     assert len(banner_div.get_text().strip()) > 0, "El div 'dsBannerWrap' está vacío en el contenido procesado"
     assert len(h2_header.get_text().strip()) > 0, "El div 'dsH2Header' está vacío en el contenido procesado"
     assert len(profile_wrap.get_text().strip()) > 0, "El div 'dsProfileWrap' está vacío en el contenido procesado"
-
-# poetry run pytest tests/test_html_extractor.py::test_get_url_content -s
-@pytest.mark.skip(reason="test omitido temporalmente")
-def test_get_url_content():
-    """Test para verificar que get_url_content devuelve el HTML original sin procesar."""
-    # URL de prueba
-    url = "https://wahapedia.ru/wh40k10ed/factions/space-marines/Lieutenant"
-    
-    # Obtener el contenido
-    content = html_extractor.get_url_content(url, prompt="give me the profile of Lieutenant")
-    
-    # Verificar la respuesta
-    logger.info(f"URL de prueba: {url}")
-    logger.debug(f"Contenido extraído: {content}")
-    
-    # Verificar que el contenido no esté vacío
-    assert content is not None, "El contenido no debe ser None"
-    assert isinstance(content, str), "El contenido debe ser un string"
-    assert len(content) > 0, "El contenido no debe estar vacío"
-    
-    # Verificar que el contenido es el HTML original
-    assert "<html" in content.lower(), "El contenido debe ser el HTML original"
-    assert "<body" in content.lower(), "El contenido debe ser el HTML original"
   

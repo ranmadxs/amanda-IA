@@ -1,3 +1,20 @@
+## [0.4.0] - 2025-01-27
+
+### Added
+- ✨ Documentación completa con ejemplos de API y scripts de prueba
+- ✨ Scripts ejecutables para testing rápido y completo
+- ✨ README.md mejorado con formato moderno y casos de uso
+- ✨ Estructura de documentación organizada en `resources/docs/`
+
+### Changed
+- 🔄 README.md completamente rediseñado con formato moderno y emojis
+- 🔄 Documentación estructurada en carpeta `resources/docs/`
+- 🔄 Scripts de prueba automatizados y ejecutables
+
+### Fixed
+- 🐛 Código optimizado sin archivos de debug residuales
+- 🐛 Tests funcionando al 100% con validación robusta
+
 ## [0.3.3] - 2025-01-27
 
 ### Changed

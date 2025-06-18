@@ -1,4 +1,3 @@
-
 from aia_utils.Queue import QueueConsumer, QueueProducer
 import os
 from aia_utils.logs_cfg import config_logger
@@ -156,14 +155,13 @@ class AIAService:
 
     def callback(self, message):
         """Callback para manejar mensajes entrantes."""
-        #self.logger.info(f"Received message: {message}")
-        if "semanticGraph" not in message and "sentence" not in message["semanticGraph"]:
-            self.logger.error("Message without semanticGraph.sentence")
-            return
-        else:
-            self.logger.info("Message with semanticGraph.sentence")
-            sentence = message["semanticGraph"]["sentence"]
+        try:
+            self.logger.info(f"Received message: {message}")
+            
+            # Tratar message como string directo
+            sentence = message
             self.logger.info(f"sentence: {sentence}")
+            
             result = self.similarity(sentence)
             #self.execute(sentence)
             #self.queueProducer.send_message(message)
@@ -171,6 +169,11 @@ class AIAService:
             #self.mqtt_client.send_message(message)
             self.send_mqtt_message(result['command'])
             #self.logger.info(f"Message sent to {self.topic_producer}: {message}")
+            
+        except Exception as e:
+            self.logger.error(f"Error in callback: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
 
     def send_mqtt_message(self, message):
         self.mqtt_client.send_message(message)

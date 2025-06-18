@@ -120,4 +120,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - ✨ Implementación inicial del proyecto Amanda-IA
 - ✨ API básica de chat con FastAPI
-- ✨ Integración con modelos de IA 
+- ✨ Integración con modelos de IA
+
+## [0.4.2] - 2025-06-18
+
+### Changed
+- 🔄 Callback de Kafka en `AIAService` ahora trata el mensaje como string directo, sin validación de estructura.
+- 🔄 Daemon usa directamente `AIAService` para la integración con Kafka.
+- 🔄 Pruebas básicas de API y tests unitarios exitosas.
+
+### Fixed
+- 🐛 Eliminada lógica innecesaria en el callback de Kafka. 

@@ -5,7 +5,7 @@ from transformers.utils import get_json_schema
 from .tools import get_current_temperature, get_current_wind_speed, multiply, current_time
 import pytest
 
-# poetry run pytest tests/test_tool.py::test_functions -s
+# poetry run pytest tests/olds/test_tool.py::test_functions -s
 @pytest.mark.skip(reason="lento para offline")
 def test_functions():
     device = "cpu"

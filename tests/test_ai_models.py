@@ -3,6 +3,7 @@ from datetime import datetime
 from amanda_ia.services.ai_models import AIAModels
 import logging
 from aia_utils.logs_cfg import config_logger
+import pytest
 
 # Configurar el logger
 config_logger()
@@ -17,6 +18,7 @@ def verify_basic_response(response):
     assert isinstance(response, str), "La respuesta debe ser un string"
     assert len(response) > 0, "La respuesta no debe estar vacía"
 
+# poetry run pytest tests/test_ai_models.py::test_simple_message -s
 def test_simple_message():
     """Test para un mensaje simple 'hola'."""
     # Generar respuesta usando el nuevo método chat
@@ -35,6 +37,7 @@ def test_simple_message():
     assert current_date not in response, "La respuesta no debe contener la fecha actual"
     assert current_date_iso not in response, "La respuesta no debe contener la fecha ISO actual"
 
+# poetry run pytest tests/test_ai_models.py::test_date_question -s
 def test_date_question():
     """Test para verificar la respuesta cuando se pregunta por la fecha."""
     # Generar respuesta usando el nuevo método chat
@@ -51,16 +54,17 @@ def test_date_question():
     current_year = datetime.now().strftime("%Y")
     assert current_year in response, f"La respuesta debe contener el año actual: {current_year}"
 
+# poetry run pytest tests/test_ai_models.py::test_chat_endpoint_wahapedia -s
 def test_chat_endpoint_wahapedia():
-    """Test para verificar la respuesta con una URL de Wahapedia."""
+    """Test para verificar la respuesta con una URL de Wahapedia usando el método específico."""
     # Mensaje que incluye una URL de Wahapedia
     user_message = (
         "quiero que revises la siguiente url https://wahapedia.ru/wh40k10ed/factions/orks/Ghazghkull-Thraka "
         "y me digas las estadísticas principales"
     )
     
-    # Generar respuesta usando el nuevo método chat
-    response = ai_models.chat(user_message)
+    # Generar respuesta usando el método específico para Wahapedia
+    response = ai_models.get_wahapedia_stats(user_message)
     
     # Verificar la respuesta
     logger.info("Mensaje de prueba: URL de Wahapedia")
@@ -82,6 +86,17 @@ def test_chat_endpoint_wahapedia():
         f"Encontradas: {stats_found}. El modelo debería extraer al menos 4 de: {stats} del contenido proporcionado."
     )
     logger.info("✅ Test exitoso: El modelo extrajo correctamente las claves de las estadísticas")
+
+# poetry run pytest tests/test_ai_models.py::test_get_mqtt_command -s
+def test_get_mqtt_command():
+    # Orden reconocida
+    comando = ai_models.get_mqtt_command("enciende la bomba del invernadero")
+    print(f"Comando para bomba: {comando}")
+    assert comando == "ON,2,0,0,0,0,0,0" or "on,2,0,0,0,0,0,0" in comando.lower()
+    # Orden no reconocida
+    comando2 = ai_models.get_mqtt_command("qué hora es?")
+    print(f"Comando para pregunta irrelevante: {comando2}")
+    assert "comando no reconocido" in comando2.lower()
 
 if __name__ == '__main__':
     unittest.main() 

@@ -2,7 +2,7 @@ from datasets import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import pytest
 #OK
-# poetry run pytest tests/test_datasets.py::test_dataset -s
+# poetry run pytest tests/olds/test_datasets.py::test_dataset -s
 @pytest.mark.skip(reason="no aplica")
 def test_dataset():
     checkpoint = "HuggingFaceH4/zephyr-7b-beta"
@@ -26,7 +26,7 @@ def test_dataset():
     return formatted_chats_as_strings
 
 
-# poetry run pytest tests/test_datasets.py::test_exe -s
+# poetry run pytest tests/olds/test_datasets.py::test_exe -s
 @pytest.mark.skip(reason="no aplica")
 def test_exe():
     print("test_exe")

@@ -33,6 +33,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Inicializar el servicio AIA con Kafka
+aia_service = AIAService(
+    topic_producer=os.environ.get('CLOUDKAFKA_TOPIC_PRODUCER', 'amanda-ia-producer'),
+    topic_consumer=os.environ.get('CLOUDKAFKA_TOPIC_CONSUMER', 'amanda-ia-consumer'),
+    version=getVersion()
+)
+
 @app.get("/")
 async def root():
     """Endpoint raíz para verificar que la API está funcionando."""
@@ -41,15 +48,15 @@ async def root():
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     try:
-        logger.debug(f"Received chat request: {request.message}")
-        
-        # Generar respuesta usando el servicio de modelos
-        # El servicio maneja internamente toda la lógica de contexto y procesamiento
-        response = ai_models.chat(request.message)
-        
+        logger.debug(f"Received chat request: {request.message} (type={request.type})")
+        if request.type == "cmd":
+            response = ai_models.get_mqtt_command(request.message)
+        elif request.type == "wh40k":
+            response = ai_models.get_wahapedia_stats(request.message)
+        else:
+            response = ai_models.chat(request.message)
         logger.debug(f"Final assistant response: {response}")
         return ChatResponse(response=response)
-        
     except Exception as e:
         logger.error(f"Error processing chat request: {str(e)}")
         logger.error(traceback.format_exc())
@@ -61,6 +68,13 @@ def run():
     """
     try:
         logger.info(f"Start Daemon amanda-IA v{getVersion()}")
+        
+        # Iniciar el listener de Kafka en un hilo separado
+        import threading
+        kafka_thread = threading.Thread(target=aia_service.kafkaListener, daemon=True)
+        kafka_thread.start()
+        logger.info("Kafka listener thread started")
+        
         logger.info("Starting FastAPI server...")
         uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
     except Exception as e:

@@ -51,17 +51,17 @@ class AIAModels:
             self.logger.info("Modelos de IA inicializados correctamente")
     
     def _get_system_message_with_date(self):
-        """Obtiene el mensaje del sistema con la fecha actual."""
+        """Obtiene el mensaje del sistema con la fecha actual, pero solo responde con la fecha si la pregunta es explícita sobre la fecha."""
         current_date = datetime.datetime.now().strftime("%d de %B de %Y")
         current_date_iso = datetime.datetime.now().strftime("%Y/%m/%d")
-        
+
         return f"""Eres un asistente útil. La fecha de hoy es {current_date} ({current_date_iso}).
 
 INSTRUCCIONES CRÍTICAS:
-1. Cuando te pregunten por la fecha, DEBES responder ÚNICAMENTE con la fecha exacta proporcionada arriba
-2. NO agregues saludos, explicaciones ni información adicional
-3. NO inventes fechas ni uses formatos diferentes
-4. NO menciones ubicaciones ni otra información no relacionada
+1. Si el usuario pregunta explícitamente por la fecha actual, responde ÚNICAMENTE con la fecha exacta proporcionada arriba.
+2. Si el usuario saluda, pregunta otra cosa o hace un comentario general, responde de forma natural y NO incluyas la fecha en la respuesta.
+3. NO inventes fechas ni uses formatos diferentes.
+4. NO menciones ubicaciones ni otra información no relacionada.
 
 Ejemplo:
 Usuario: "que fecha es hoy?"
@@ -70,7 +70,16 @@ Asistente: "{current_date}"
 Usuario: "what's today's date?"
 Asistente: "{current_date_iso}"
 
-Recuerda: Mantén las respuestas cortas y directas. Usa SOLO la fecha exacta proporcionada.""", current_date, current_date_iso
+Usuario: "hola"
+Asistente: "¡Hola! ¿En qué puedo ayudarte?"
+
+Usuario: "buenos días"
+Asistente: "¡Buenos días! ¿Cómo puedo ayudarte?"
+
+Usuario: "cuéntame un chiste"
+Asistente: "¿Por qué el tomate se puso rojo? Porque vio a la ensalada desnuda."
+
+Recuerda: Solo responde con la fecha si la pregunta es explícita sobre la fecha. Para saludos y otras preguntas, responde de forma natural y útil.""", current_date, current_date_iso
     
     def _detect_and_extract_urls(self, user_message: str) -> Dict[str, str]:
         """Detecta URLs en el mensaje y extrae su contenido."""
@@ -131,9 +140,14 @@ Recuerda: Mantén las respuestas cortas y directas. Usa SOLO la fecha exacta pro
         """Carga el modelo por defecto."""
         try:
             self.logger.info("Inicializando modelo y tokenizer...")
-            # Usar un modelo más pequeño y eficiente
-            checkpoint = "Qwen/Qwen2-0.5B-Instruct"  # Modelo actual - más rápido
-            # checkpoint = "Qwen/Qwen2-7B-Instruct"  # Modelo más grande - mejor para análisis pero más lento
+            # Modelos probados:
+            # - devanshamin/Qwen2-1.5B-Instruct-Function-Calling-v1 (function calling, pero responde siempre en JSON)
+            # - Qwen/Qwen2-0.5B-Instruct (mejor para respuestas en texto libre)
+            # - Qwen/Qwen2-7B-Instruct  # Modelo más grande - mejor para análisis pero más lento
+            # - Qwen/Qwen1.5-0.5B-Chat  # Primer modelo probado
+            # checkpoint = "Qwen/Qwen2.5-0.5B-Instruct"
+            #checkpoint = "Qwen/Qwen2-1.5B-Instruct"
+            checkpoint = "Qwen/Qwen2.5-1.5B-Instruct"
             
             # Inicializar el tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(
@@ -203,13 +217,14 @@ Recuerda: Mantén las respuestas cortas y directas. Usa SOLO la fecha exacta pro
                 system_content = (
                     "Eres un asistente útil. A continuación tienes contenido en formato Markdown extraído de una página de Wahapedia. "
                     "Tu tarea es EXTRAER y PRESENTAR las estadísticas que encuentres en el contenido.\n\n"
+                    "IMPORTANTE: Responde SOLO con texto libre. NO uses function calling ni formato JSON.\n\n"
                     "INSTRUCCIONES ESPECÍFICAS:\n"
                     "1. Busca las estadísticas en el contenido (M, T, Sv, W, Ld, OC, INVULNERABLE SAVE)\n"
                     "2. Preséntalas en una lista simple con el formato exacto que aparecen\n"
                     "3. NO inventes, NO hagas suposiciones, NO interpretes\n"
                     "4. Solo usa la información que está en el contenido\n"
                     "5. Si no encuentras una estadística, NO la inventes\n"
-                    "6. Responde SOLO con la lista de estadísticas encontradas\n\n"
+                    "6. Responde SOLO con la lista de estadísticas encontradas en texto libre\n\n"
                     "Contenido a analizar:\n"
                 )
                 for content in wahapedia_content.values():
@@ -290,28 +305,14 @@ Recuerda: Mantén las respuestas cortas y directas. Usa SOLO la fecha exacta pro
         """
         Método principal para chat que recibe solo un string del usuario.
         Maneja internamente toda la lógica de creación de contexto y procesamiento.
-        
-        Args:
-            user_message: El mensaje del usuario
-            max_length: Longitud máxima de la respuesta
-            model_type: Tipo de modelo a usar ('default')
-            
-        Returns:
-            La respuesta generada
         """
         try:
             # Crear mensajes para el modelo
             messages = self._create_messages_for_model(user_message)
-            
-            # Procesar URLs de Wahapedia si están presentes
-            processed_messages = self._extract_wahapedia_content(messages)
-            
             # Log debug para ver qué mensajes se envían al modelo
-            self.logger.debug(f"Mensajes procesados que se envían al modelo: {processed_messages}")
-            
+            self.logger.debug(f"Mensajes procesados que se envían al modelo: {messages}")
             # Generar respuesta usando el método interno
-            return self._generate_response_internal(processed_messages, max_length, model_type)
-            
+            return self._generate_response_internal(messages, max_length, model_type)
         except Exception as e:
             self.logger.error(f"Error en chat: {str(e)}")
             return "Lo siento, hubo un error al procesar tu mensaje."
@@ -402,4 +403,89 @@ Recuerda: Mantén las respuestas cortas y directas. Usa SOLO la fecha exacta pro
     
     def get_version(self) -> str:
         """Obtiene la versión del módulo."""
-        return getVersion() 
+        return getVersion()
+
+    def get_mqtt_command(self, user_message: str, max_length: int = 128) -> str:
+        """
+        Dado un mensaje de usuario, devuelve SOLO el comando MQTT si es una orden de control.
+        Si no es una orden reconocida, responde 'Comando no reconocido'.
+        """
+        prompt = (
+            "Eres un controlador de invernadero.\n"
+            "INSTRUCCIONES:\n"
+            "- Si el usuario da una orden de encender/apagar la bomba, responde SOLO con el comando MQTT exacto para la bomba (ejemplo: ON,2,0,0,0,0,0,0 para encender la bomba, OFF,2,0,0,0,0,0,0 para apagarla).\n"
+            "- Si la orden es para las luces, responde SOLO con el comando MQTT exacto para las luces (ejemplo: ON,0,0,0,0,0,0,0 para encender todas las luces).\n"
+            "- Si la orden no corresponde a un comando conocido, responde exactamente con: Comando no reconocido.\n"
+            "- No repitas ejemplos ni des explicaciones, responde solo con el comando.\n\n"
+            "EJEMPLOS:\n"
+            "Usuario: 'enciende la bomba del invernadero'\nRespuesta: ON,2,0,0,0,0,0,0\n"
+            "Usuario: 'apaga la bomba del invernadero'\nRespuesta: OFF,2,0,0,0,0,0,0\n"
+            "Usuario: 'enciende la bomba principal'\nRespuesta: ON,2,0,0,0,0,0,0\n"
+            "Usuario: 'apaga la bomba principal'\nRespuesta: OFF,2,0,0,0,0,0,0\n"
+            "Usuario: 'enciende la bomba de riego'\nRespuesta: ON,2,0,0,0,0,0,0\n"
+            "Usuario: 'apaga la bomba de riego'\nRespuesta: OFF,2,0,0,0,0,0,0\n"
+            "Usuario: 'enciende la bomba'\nRespuesta: ON,2,0,0,0,0,0,0\n"
+            "Usuario: 'apaga la bomba'\nRespuesta: OFF,2,0,0,0,0,0,0\n"
+            "Usuario: 'enciende las luces del invernadero'\nRespuesta: ON,0,0,0,0,0,0,0\n"
+            "Usuario: 'apaga las luces del invernadero'\nRespuesta: OFF,0,0,0,0,0,0,0\n"
+            "Usuario: 'enciende la luz de las plantas'\nRespuesta: ON,1,0,0,0,0,0,0\n"
+            "Usuario: 'enciende la luz principal'\nRespuesta: ON,0,0,0,0,0,0,0\n"
+            "Usuario: 'enciende la calefacción del invernadero'\nRespuesta: ON,3,0,0,0,0,0,0\n"
+            "Usuario: 'apaga la calefacción del invernadero'\nRespuesta: OFF,3,0,0,0,0,0,0\n"
+            "Usuario: 'enciende el ventilador'\nRespuesta: ON,4,0,0,0,0,0,0\n"
+            "Usuario: 'apaga el ventilador'\nRespuesta: OFF,4,0,0,0,0,0,0\n"
+            # Ejemplos negativos variados al final
+            "Usuario: 'qué hora es?'\nRespuesta: Comando no reconocido\n"
+            "Usuario: 'dime la temperatura'\nRespuesta: Comando no reconocido\n"
+            "Usuario: 'riego automático'\nRespuesta: Comando no reconocido\n"
+            "Usuario: 'enciende la bomba y las luces'\nRespuesta: Comando no reconocido\n"
+            "Usuario: 'cómo está el clima?'\nRespuesta: Comando no reconocido\n"
+            "Usuario: 'cuál es el estado del invernadero?'\nRespuesta: Comando no reconocido\n"
+            "Usuario: 'analiza https://wahapedia.ru/wh40k10ed/factions/orks/Ghazghkull-Thraka'\nRespuesta: Comando no reconocido\n"
+            "Usuario: 'enciende todo'\nRespuesta: Comando no reconocido\n"
+            "Usuario: 'enciende la bomba y la calefacción'\nRespuesta: Comando no reconocido\n"
+            f"Usuario: '{user_message}'\nRespuesta:"
+        )
+        # Generar la respuesta usando directamente el método interno, evitando lógica de URLs
+        messages = [
+            {"role": "system", "content": prompt}
+        ]
+        respuesta = self._generate_response_internal(messages, max_length=max_length).strip()
+        # Devolver solo la primera línea (el comando MQTT o 'Comando no reconocido')
+        return respuesta.splitlines()[0].strip() if respuesta else respuesta 
+
+    def get_wahapedia_stats(self, user_message: str, max_length: int = 512) -> str:
+        """
+        Dado un mensaje del usuario con una URL de Wahapedia, extrae y devuelve SOLO las estadísticas principales encontradas en el contenido.
+        Si no se detecta una URL válida, responde con un mensaje de error.
+        """
+        # Detectar URL de Wahapedia
+        import re
+        url_pattern = r'https?://wahapedia\.ru/\S+'
+        urls = re.findall(url_pattern, user_message)
+        if not urls:
+            return "No se detectó una URL de Wahapedia en el mensaje."
+        # Extraer contenido de la primera URL encontrada
+        wahapedia_url = urls[0]
+        try:
+            content = self.html_extractor.get_wahapedia_content(wahapedia_url)
+        except Exception as e:
+            return f"Error al extraer contenido de Wahapedia: {str(e)}"
+        # Crear prompt específico para extraer solo las estadísticas
+        prompt = (
+            "A continuación tienes contenido en formato Markdown extraído de una página de Wahapedia. "
+            "Tu tarea es EXTRAER y PRESENTAR SOLO las estadísticas principales que encuentres en el contenido.\n\n"
+            "IMPORTANTE: Responde SOLO con una lista de estadísticas encontradas (M, T, Sv, W, Ld, OC, INVULNERABLE SAVE).\n"
+            "NO uses function calling ni formato JSON.\n"
+            "NO inventes, NO hagas suposiciones, NO interpretes.\n"
+            "Solo usa la información que está en el contenido.\n"
+            "Si no encuentras una estadística, NO la inventes.\n"
+            f"\nContenido a analizar:\n{content}\n"
+            "\nResponde SOLO con la lista de estadísticas encontradas en texto libre."
+        )
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": "dime las estadísticas principales."}
+        ]
+        respuesta = self._generate_response_internal(messages, max_length=max_length).strip()
+        return respuesta 

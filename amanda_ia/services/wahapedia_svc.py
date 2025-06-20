@@ -79,4 +79,4 @@ class WahapediaSvC:
             {"role": "user", "content": "dime las estadísticas principales."}
         ]
         respuesta = self.aiamodels._generate_response_internal(messages, max_length=max_length).strip()
-        return respuesta 
+        return f"{respuesta} - url: {wahapedia_url}"

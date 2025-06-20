@@ -170,3 +170,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - El formulario de tipo de chat ahora usa radio buttons (solo uno a la vez).
 - El endpoint `/status` reemplaza al antiguo `/` para healthcheck. 
+
+## [0.8.0] - YYYY-MM-DD
+### Added
+- Nuevo servicio `MqttCommanderSvc` para manejar comandos MQTT de forma independiente.
+- URL de Wahapedia agregada al final de las respuestas de estadísticas (`url={wahapedia_url}`).
+
+### Changed
+- Refactorización: Lógica de MQTT movida de `AIAModels` a `MqttCommanderSvc` para mejor separación de responsabilidades.
+- Tests actualizados para usar el nuevo servicio MQTT.
+
+### Removed
+- Métodos `get_mqtt_command` y `_send_mqtt_async` de `AIAModels` (movidos a `MqttCommanderSvc`). 

@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
 from fastapi.staticfiles import StaticFiles
+from .services.mqtt_commander_svc import MqttCommanderSvc
 
 # Configuración del logger
 config_logger()
@@ -27,6 +28,7 @@ load_dotenv()
 # Inicialización de los servicios
 ai_models = AIAModels()
 wahapedia_svc = WahapediaSvC(aiamodels=ai_models)
+mqtt_commander_svc = MqttCommanderSvc(aiamodels=ai_models)
 
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), 'templates'))
 
@@ -64,7 +66,7 @@ async def chat(request: ChatRequest):
     try:
         logger.debug(f"Received chat request: {request.message} (type={request.type})")
         if request.type == "cmd":
-            response = ai_models.get_mqtt_command(request.message)
+            response = mqtt_commander_svc.get_mqtt_command(request.message)
         elif request.type == "wh40k":
             response = wahapedia_svc.get_wahapedia_stats(request.message)
         else:
@@ -84,10 +86,10 @@ def run():
         logger.info(f"Start Daemon amanda-IA v{getVersion()}")
         
         # Iniciar el listener de Kafka en un hilo separado
-        import threading
-        kafka_thread = threading.Thread(target=aia_service.kafkaListener, daemon=True)
-        kafka_thread.start()
-        logger.info("Kafka listener thread started")
+        #import threading
+        #kafka_thread = threading.Thread(target=aia_service.kafkaListener, daemon=True)
+        #kafka_thread.start()
+        #logger.info("Kafka listener thread started")
         
         logger.info("Starting FastAPI server...")
         uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

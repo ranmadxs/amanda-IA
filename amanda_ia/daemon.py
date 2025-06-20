@@ -14,6 +14,10 @@ from .services.ai_models import AIAModels
 from aia_utils.toml_utils import getVersion
 from .models import ChatRequest, ChatResponse
 from .services.wahapedia_svc import WahapediaSvC
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi import Request
+from fastapi.staticfiles import StaticFiles
 
 # Configuración del logger
 config_logger()
@@ -23,6 +27,8 @@ load_dotenv()
 # Inicialización de los servicios
 ai_models = AIAModels()
 wahapedia_svc = WahapediaSvC(aiamodels=ai_models)
+
+templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), 'templates'))
 
 app = FastAPI(title="Amanda-IA Chat API")
 
@@ -42,10 +48,16 @@ aia_service = AIAService(
     version=getVersion()
 )
 
-@app.get("/")
-async def root():
-    """Endpoint raíz para verificar que la API está funcionando."""
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "templates", "static")), name="static")
+
+@app.get("/status")
+async def status():
+    """Endpoint para verificar que la API está funcionando."""
     return {"message": "Amanda-IA Chat API is running"}
+
+@app.get("/", response_class=HTMLResponse)
+def home(request: Request):
+    return templates.TemplateResponse("home.html", {"request": request})
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):

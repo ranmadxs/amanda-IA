@@ -160,3 +160,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ✨ Implementación inicial del proyecto Amanda-IA
 - ✨ API básica de chat con FastAPI
 - ✨ Integración con modelos de IA 
+
+## [0.7.0] - YYYY-MM-DD
+### Added
+- Mejora visual del input de texto y alineación de radio buttons para tipo de chat.
+- Persistencia del historial de chat usando localStorage.
+- Botón pequeño con emoji de escoba 🧹 para borrar el historial de chat.
+
+### Changed
+- El formulario de tipo de chat ahora usa radio buttons (solo uno a la vez).
+- El endpoint `/status` reemplaza al antiguo `/` para healthcheck. 

@@ -1,3 +1,8 @@
+## [0.6.1] - 2025-06-20
+### Changed
+- Refactorización de `get_wahapedia_stats` moviéndolo a `WahapediaSvC` para desacoplar la lógica.
+- Movido el test `test_chat_endpoint_wahapedia` a `test_wahapedia_svc.py`.
+
 ## [0.6.0] - 2025-06-19
 ### Added/Changed/Fixed
 - ✨ Incremento de versión minor siguiendo el proceso de versionado automatizado.

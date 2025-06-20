@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime
 from amanda_ia.services.ai_models import AIAModels
+from amanda_ia.services.wahapedia_svc import WahapediaSvC
 import logging
 from aia_utils.logs_cfg import config_logger
 import pytest
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 # Inicializar el modelo
 ai_models = AIAModels()
+wahapedia_svc = WahapediaSvC(aiamodels=ai_models)
 
 def verify_basic_response(response):
     """Verifica las propiedades básicas de una respuesta."""
@@ -55,39 +57,6 @@ def test_date_question():
     # Verificar que la respuesta contenga el año actual
     current_year = datetime.now().strftime("%Y")
     assert current_year in response, f"La respuesta debe contener el año actual: {current_year}"
-
-# poetry run pytest tests/test_ai_models.py::test_chat_endpoint_wahapedia -s
-def test_chat_endpoint_wahapedia():
-    """Test para verificar la respuesta con una URL de Wahapedia usando el método específico."""
-    # Mensaje que incluye una URL de Wahapedia
-    user_message = (
-        "quiero que revises la siguiente url https://wahapedia.ru/wh40k10ed/factions/orks/Ghazghkull-Thraka "
-        "y me digas las estadísticas principales"
-    )
-    
-    # Generar respuesta usando el método específico para Wahapedia
-    response = ai_models.get_wahapedia_stats(user_message)
-    
-    # Verificar la respuesta
-    logger.info("Mensaje de prueba: URL de Wahapedia")
-    logger.debug(f"Respuesta del modelo: {response}")
-    
-    # Verificar propiedades básicas
-    verify_basic_response(response)
-    
-    # Verificar que la respuesta contenga las estadísticas principales
-    stats = ["M", "T", "Sv", "W", "Ld", "OC"]
-    stats_found = []
-    for stat in stats:
-        # Buscar la clave en cualquier formato (lista, tabla, texto libre)
-        if stat in response:
-            stats_found.append(stat)
-    
-    assert len(stats_found) >= 4, (
-        f"❌ El modelo no extrajo suficientes estadísticas del contenido Markdown. "
-        f"Encontradas: {stats_found}. El modelo debería extraer al menos 4 de: {stats} del contenido proporcionado."
-    )
-    logger.info("✅ Test exitoso: El modelo extrajo correctamente las claves de las estadísticas")
 
 # poetry run pytest tests/test_ai_models.py::test_get_mqtt_command -s
 def test_get_mqtt_command():

@@ -13,6 +13,7 @@ import traceback
 from .services.ai_models import AIAModels
 from aia_utils.toml_utils import getVersion
 from .models import ChatRequest, ChatResponse
+from .services.wahapedia_svc import WahapediaSvC
 
 # Configuración del logger
 config_logger()
@@ -21,6 +22,7 @@ load_dotenv()
 
 # Inicialización de los servicios
 ai_models = AIAModels()
+wahapedia_svc = WahapediaSvC(aiamodels=ai_models)
 
 app = FastAPI(title="Amanda-IA Chat API")
 
@@ -52,7 +54,7 @@ async def chat(request: ChatRequest):
         if request.type == "cmd":
             response = ai_models.get_mqtt_command(request.message)
         elif request.type == "wh40k":
-            response = ai_models.get_wahapedia_stats(request.message)
+            response = wahapedia_svc.get_wahapedia_stats(request.message)
         else:
             response = ai_models.chat(request.message)
         logger.debug(f"Final assistant response: {response}")

@@ -107,4 +107,30 @@ def test_classify_from_list():
     logger.info(f"Resultado classify_from_list (unidades): {unit_result}")
     
     assert unit_result is not None
-    assert unit_result.strip().lower() == "terminator-squad" 
+    assert unit_result.strip().lower() == "terminator-squad"
+
+ai_models = AIAModels()
+wahapedia_svc = WahapediaSvC(aiamodels=ai_models)
+
+def verify_basic_response(response):
+    assert response is not None, "La respuesta no debe ser None"
+    assert isinstance(response, str), "La respuesta debe ser un string"
+    assert len(response) > 0, "La respuesta no debe estar vacía"
+
+# poetry run pytest tests/test_wahapedia_svc.py::test_chat_endpoint_wahapedia -s
+def test_chat_endpoint_wahapedia():
+    """Test para verificar la respuesta con una URL de Wahapedia usando el método específico."""
+    user_message = (
+        "dame las estadísticas de un Space Marine Rhino"
+    )
+    response = wahapedia_svc.get_wahapedia_stats(user_message)
+    logger.info("Mensaje de prueba: URL de Wahapedia")
+    logger.debug(f"Respuesta del modelo: {response}")
+    verify_basic_response(response)
+    stats = ["M", "T", "Sv", "W", "Ld", "OC"]
+    stats_found = [stat for stat in stats if stat in response]
+    assert len(stats_found) >= 4, (
+        f"❌ El modelo no extrajo suficientes estadísticas del contenido Markdown. "
+        f"Encontradas: {stats_found}. El modelo debería extraer al menos 4 de: {stats} del contenido proporcionado."
+    )
+    logger.info("✅ Test exitoso: El modelo extrajo correctamente las claves de las estadísticas") 

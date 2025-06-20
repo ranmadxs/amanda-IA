@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "amanda-ia"
-version = "0.6.1"
+version = "0.6.2"
 description = "Amanda-IA Chat API"
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"
@@ -25,7 +25,7 @@ protobuf = ">=3.20.3,<4.21.0"
 requests = "^2.31.0"
 beautifulsoup4 = "^4.12.3"
 python-dotenv = "^1.0.1"
-aia-read-svc = "^0.6.1"
+aia-read-svc = "0.6.2"
 sentence-transformers = "^4.1.0"
 
 [tool.poetry.group.dev.dependencies]

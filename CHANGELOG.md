@@ -1,3 +1,9 @@
+## [0.6.2] - 2024-06-21
+### Added/Changed/Fixed
+- ⬆️ Actualización de dependencia `aia-read-svc` a 0.6.2
+- 🧹 Eliminados métodos internos no utilizados en `AIAModels` para mayor claridad
+- 🛠️ Mejoras menores de robustez y compatibilidad
+
 ## [0.6.1] - 2025-06-20
 ### Changed
 - Refactorización de `get_wahapedia_stats` moviéndolo a `WahapediaSvC` para desacoplar la lógica.

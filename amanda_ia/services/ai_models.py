@@ -86,44 +86,6 @@ Asistente: "¿Por qué el tomate se puso rojo? Porque vio a la ensalada desnuda.
 
 Recuerda: Solo responde con la fecha si la pregunta es explícita sobre la fecha. Para saludos y otras preguntas, responde de forma natural y útil.""", current_date, current_date_iso
     
-    def _detect_and_extract_urls(self, user_message: str) -> Dict[str, str]:
-        """Detecta URLs en el mensaje y extrae su contenido."""
-        url_pattern = r'https?://\S+'
-        urls = re.findall(url_pattern, user_message)
-        
-        if not urls:
-            return {}
-        
-        self.logger.debug(f"URLs detectadas en el mensaje: {urls}")
-        url_contents = {}
-        
-        for url in urls:
-            try:
-                content = self.html_extractor.get_wahapedia_content(url)
-                url_contents[url] = content
-            except Exception as e:
-                self.logger.error(f"Error al extraer contenido de {url}: {str(e)}")
-                url_contents[url] = f"Error al extraer contenido: {str(e)}"
-        
-        return url_contents
-    
-    def _create_system_message_with_urls(self, url_contents: Dict[str, str]) -> str:
-        """Crea el mensaje del sistema con contenido de URLs."""
-        system_message = "You are a helpful assistant that can fetch and analyze content from URLs. "
-        system_message += "I will provide you with the content of the URLs mentioned in the user's message. "
-        system_message += "Please analyze this content and provide a detailed response based on it.\n\n"
-        
-        for url, content in url_contents.items():
-            system_message += f"Content from {url}:\n{content}\n\n"
-        
-        # Truncar el mensaje del sistema si es muy largo
-        max_system_length = 32000
-        if len(system_message) > max_system_length:
-            self.logger.debug(f"Sistema: Mensaje truncado de {len(system_message)} a {max_system_length} caracteres")
-            system_message = system_message[:max_system_length] + "... [contenido truncado]"
-        
-        return system_message
-    
     def _create_messages_for_model(self, user_message: str, system_message: str = None) -> List[Dict[str, str]]:
         """Crea la lista de mensajes para el modelo basado en el mensaje del usuario."""
         if system_message is None:
@@ -183,88 +145,6 @@ Recuerda: Solo responde con la fecha si la pregunta es explícita sobre la fecha
             self.logger.error(f"Error al cargar el modelo por defecto: {str(e)}")
             self.model = None
             self.tokenizer = None
-    
-    def _extract_wahapedia_content(self, messages):
-        """Extrae contenido de URLs de Wahapedia si están presentes en los mensajes."""
-        try:
-            # Buscar URLs en todos los mensajes
-            url_pattern = r'https?://wahapedia\.ru/\S+'
-            wahapedia_urls = []
-            
-            for message in messages:
-                if isinstance(message, dict) and 'content' in message:
-                    urls = re.findall(url_pattern, message['content'])
-                    wahapedia_urls.extend(urls)
-            
-            if wahapedia_urls:
-                self.logger.info(f"URLs de Wahapedia detectadas: {wahapedia_urls}")
-                
-                # Obtener contenido de todas las URLs
-                wahapedia_content = {}
-                for url in wahapedia_urls:
-                    try:
-                        content = self.html_extractor.get_wahapedia_content(url)
-                        wahapedia_content[url] = content
-                        self.logger.debug(f"Contenido extraído de {url}: {len(content)} caracteres")
-                    except Exception as e:
-                        self.logger.error(f"Error al extraer contenido de {url}: {str(e)}")
-                        wahapedia_content[url] = f"Error al extraer contenido: {str(e)}"
-                
-                # Crear un mensaje del sistema con el contenido extraído
-                system_content = (
-                    "Eres un asistente útil. A continuación tienes contenido en formato Markdown extraído de una página de Wahapedia. "
-                    "Tu tarea es EXTRAER y PRESENTAR las estadísticas que encuentres en el contenido.\n\n"
-                    "IMPORTANTE: Responde SOLO con texto libre. NO uses function calling ni formato JSON.\n\n"
-                    "INSTRUCCIONES ESPECÍFICAS:\n"
-                    "1. Busca las estadísticas en el contenido (M, T, Sv, W, Ld, OC, INVULNERABLE SAVE)\n"
-                    "2. Preséntalas en una lista simple con el formato exacto que aparecen\n"
-                    "3. NO inventes, NO hagas suposiciones, NO interpretes\n"
-                    "4. Solo usa la información que está en el contenido\n"
-                    "5. Si no encuentras una estadística, NO la inventes\n"
-                    "6. Responde SOLO con la lista de estadísticas encontradas en texto libre\n\n"
-                    "Contenido a analizar:\n"
-                )
-                for content in wahapedia_content.values():
-                    system_content += f"{content}\n\n"
-                
-                # Truncar si es muy largo
-                max_length = 32000
-                if len(system_content) > max_length:
-                    self.logger.debug(f"Contenido truncado de {len(system_content)} a {max_length} caracteres")
-                    system_content = system_content[:max_length] + "... [contenido truncado]"
-                
-                # Crear nuevos mensajes con el contenido extraído
-                new_messages = [
-                    {"role": "system", "content": system_content}
-                ]
-                
-                # Agregar el mensaje del usuario original
-                if messages and len(messages) > 0:
-                    new_messages.append(messages[-1])  # Agregar el último mensaje (usuario)
-                
-                # Si se detectaron URLs de Wahapedia, modificar el mensaje del usuario
-                if wahapedia_urls:
-                    # Modificar el último mensaje del usuario para que no incluya la URL
-                    for message in messages:
-                        if message["role"] == "user":
-                            # Reemplazar cualquier referencia a URL con una petición de revisar el contenido
-                            original_content = message["content"]
-                            # Buscar y reemplazar patrones comunes de URLs de Wahapedia
-                            # Eliminar URLs de Wahapedia del mensaje
-                            cleaned_content = re.sub(r'https://wahapedia\.ru/[^\s]+', '', original_content)
-                            # Limpiar espacios extra y agregar petición clara
-                            cleaned_content = cleaned_content.strip()
-                            # Simplificar el mensaje para que sea más directo
-                            message["content"] = "dime las estadísticas principales."
-                            break
-                
-                return new_messages
-            
-            return messages
-            
-        except Exception as e:
-            self.logger.error(f"Error al procesar URLs de Wahapedia: {str(e)}")
-            return messages
     
     def get_model(self, model_type: str = 'default'):
         """

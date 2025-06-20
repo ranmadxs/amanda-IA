@@ -1,0 +1,6 @@
+space-marines
+adepta-sororitas
+black-templars
+aeldari
+orks
+adeptus-mechanicus

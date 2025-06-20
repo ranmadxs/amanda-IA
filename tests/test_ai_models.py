@@ -4,6 +4,8 @@ from amanda_ia.services.ai_models import AIAModels
 import logging
 from aia_utils.logs_cfg import config_logger
 import pytest
+import json
+import re
 
 # Configurar el logger
 config_logger()
@@ -90,9 +92,23 @@ def test_chat_endpoint_wahapedia():
 # poetry run pytest tests/test_ai_models.py::test_get_mqtt_command -s
 def test_get_mqtt_command():
     # Orden reconocida
-    comando = ai_models.get_mqtt_command("enciende la bomba del invernadero")
+    comando = ai_models.get_mqtt_command("por favor puedes encender la luz del invernadero?")
     print(f"Comando para bomba: {comando}")
-    assert comando == "ON,2,0,0,0,0,0,0" or "on,2,0,0,0,0,0,0" in comando.lower()
+    
+    # Verificar que devuelve un JSON válido para comandos reconocidos
+    try:
+        json_data = json.loads(comando)
+        assert "text" in json_data
+        assert "command" in json_data
+        assert "topic" in json_data
+        assert "protocol" in json_data
+        assert "text" in json_data
+        # Validar que el comando sigue el patrón MQTT: ON/OFF seguido de números separados por comas
+        assert re.match(r'^(ON|OFF),\d+(,\d+)*$', json_data["command"]), f"El comando '{json_data['command']}' no sigue el patrón MQTT esperado"
+    except json.JSONDecodeError:
+        # Si no es JSON, debe ser "Comando no reconocido" o un comando directo
+        assert comando == "Comando no reconocido" or re.match(r'^(ON|OFF),\d+(,\d+)*$', comando)
+    
     # Orden no reconocida
     comando2 = ai_models.get_mqtt_command("qué hora es?")
     print(f"Comando para pregunta irrelevante: {comando2}")

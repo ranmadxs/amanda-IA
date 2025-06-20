@@ -3,11 +3,16 @@ import torch
 import logging
 import re
 import datetime
+import json
+import asyncio
+import threading
 from typing import List, Dict, Any
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from aia_utils.toml_utils import getVersion
 from aia_utils.logs_cfg import config_logger
+from aia_utils.mqtt import MqttProducer
 from .html_extractor import HTMLExtractor
+from amanda_ia.aia import AIAService
 
 # Configurar modo offline y caché para Hugging Face
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
@@ -119,18 +124,10 @@ Recuerda: Solo responde con la fecha si la pregunta es explícita sobre la fecha
         
         return system_message
     
-    def _create_messages_for_model(self, user_message: str) -> List[Dict[str, str]]:
+    def _create_messages_for_model(self, user_message: str, system_message: str = None) -> List[Dict[str, str]]:
         """Crea la lista de mensajes para el modelo basado en el mensaje del usuario."""
-        # Detectar y extraer contenido de URLs
-        url_contents = self._detect_and_extract_urls(user_message)
-        
-        if url_contents:
-            # Si hay URLs, crear mensaje del sistema con contenido de URLs
-            system_message = self._create_system_message_with_urls(url_contents)
-        else:
-            # Si no hay URLs, usar mensaje del sistema con fecha
+        if system_message is None:
             system_message, _, _ = self._get_system_message_with_date()
-        
         return [
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message}
@@ -301,14 +298,15 @@ Recuerda: Solo responde con la fecha si la pregunta es explícita sobre la fecha
             self.logger.warning(f"Tipo de modelo no reconocido: {model_type}")
             return None
     
-    def chat(self, user_message: str, max_length: int = 512, model_type: str = 'default') -> str:
+    def chat(self, user_message: str, max_length: int = 512, model_type: str = 'default', system_message: str = None) -> str:
         """
         Método principal para chat que recibe solo un string del usuario.
         Maneja internamente toda la lógica de creación de contexto y procesamiento.
         """
         try:
+
             # Crear mensajes para el modelo
-            messages = self._create_messages_for_model(user_message)
+            messages = self._create_messages_for_model(user_message, system_message=system_message)
             # Log debug para ver qué mensajes se envían al modelo
             self.logger.debug(f"Mensajes procesados que se envían al modelo: {messages}")
             # Generar respuesta usando el método interno
@@ -401,58 +399,176 @@ Recuerda: Solo responde con la fecha si la pregunta es explícita sobre la fecha
             # Si es una lista, usar el método interno (para compatibilidad)
             return self._generate_response_internal(prompt_or_messages, max_length, model_type)
     
+    def classify_from_list_pipeline(self, options: List[str], user_message: str) -> str:
+        """
+        Método optimizado usando pipeline de text-classification para clasificación.
+        Mucho más rápido y eficiente que el método basado en chat.
+        
+        Args:
+            options: Lista de opciones disponibles
+            user_message: Mensaje del usuario
+            
+        Returns:
+            El elemento de la lista que mejor representa el mensaje del usuario
+        """
+        try:
+            # Crear etiquetas para el pipeline
+            labels = options
+            
+            # Crear el pipeline de clasificación
+            classifier = pipeline(
+                "zero-shot-classification",
+                model="facebook/bart-large-mnli",
+                tokenizer="facebook/bart-large-mnli",
+                device=0 if torch.cuda.is_available() else -1
+            )
+            
+            # Usar solo el mensaje del usuario como input
+            result = classifier(user_message, candidate_labels=labels)
+            
+            # Retornar la etiqueta con mayor score
+            return result['labels'][0]
+            
+        except Exception as e:
+            self.logger.error(f"Error en classify_from_list_pipeline: {str(e)}")
+            return None
+
+    def classify_from_list(self, options: List[str], user_message: str) -> str:
+        """
+        Clasifica usando embeddings y fallback zero-shot-classification.
+        Loguea los 3 mayores puntajes de similitud de coseno.
+        Si la diferencia entre el mejor y el segundo mejor puntaje es menor a 0.08, prioriza la opción con el nombre más corto.
+        """
+        def normalize(text):
+            return text.replace('-', ' ').replace('_', ' ').lower().strip()
+        try:
+            norm_options = [normalize(opt) for opt in options]
+            norm_message = normalize(user_message)
+            from sklearn.metrics.pairwise import cosine_similarity
+            from sentence_transformers import SentenceTransformer
+            model = SentenceTransformer('all-MiniLM-L6-v2')
+            option_embeddings = model.encode(norm_options)
+            user_embedding = model.encode([norm_message])[0]
+            similarities = cosine_similarity([user_embedding], option_embeddings)[0]
+            # Log top 3 puntajes
+            top3 = sorted(enumerate(similarities), key=lambda x: x[1], reverse=True)[:3]
+            for rank, (idx, score) in enumerate(top3, 1):
+                self.logger.info(f"Top {rank}: {options[idx]} -> {score:.4f}")
+            best_idx = similarities.argmax()
+            best_score = similarities[best_idx]
+            # Buscar el segundo mejor puntaje
+            sorted_indices = similarities.argsort()[::-1]
+            second_idx = sorted_indices[1] if len(sorted_indices) > 1 else best_idx
+            second_score = similarities[second_idx]
+            # Si el mejor score es menor a 0.3, devolver None (sin fallback)
+            if best_score < 0.3:
+                self.logger.info(f"Similitud máxima muy baja ({best_score:.2f}), devolviendo None.")
+                return None
+            # Si la diferencia es menor a 0.08 y hay más de 50 opciones, priorizar el nombre más corto
+            if len(options) > 50 and abs(best_score - second_score) < 0.08:
+                candidates = [best_idx, second_idx]
+                shortest = min(candidates, key=lambda i: len(options[i]))
+                self.logger.info(f"Diferencia pequeña entre top 2 ({best_score:.4f} vs {second_score:.4f}) y más de 50 opciones, priorizando el más corto: {options[shortest]}")
+                return options[shortest]
+            # Ajustar el umbral de aceptación a 0.48
+            if best_score >= 0.48:
+                return options[best_idx]
+            else:
+                self.logger.info(f"Similitud baja ({best_score:.2f}), fallback estrategia.")
+                return self.classify_from_list_pipeline(options, user_message)
+        except Exception as e:
+            self.logger.error(f"Error en classify_from_list (embeddings): {str(e)}")
+            
+
     def get_version(self) -> str:
         """Obtiene la versión del módulo."""
         return getVersion()
+
+    def _send_mqtt_async(self, topic: str, command: str):
+        """Envía un comando MQTT de forma asíncrona."""
+        try:
+            mqtt_client = MqttProducer(topic, "amanda-ia-models-0019")
+            mqtt_client.send_message(command)
+            self.logger.info(f"Comando MQTT enviado: {command} al topico {topic}")
+        except Exception as e:
+            self.logger.error(f"Error al enviar comando MQTT: {str(e)}")
 
     def get_mqtt_command(self, user_message: str, max_length: int = 128) -> str:
         """
         Dado un mensaje de usuario, devuelve SOLO el comando MQTT si es una orden de control.
         Si no es una orden reconocida, responde 'Comando no reconocido'.
+        Al final envía el comando MQTT a la cola de forma asíncrona.
         """
-        prompt = (
-            "Eres un controlador de invernadero.\n"
-            "INSTRUCCIONES:\n"
-            "- Si el usuario da una orden de encender/apagar la bomba, responde SOLO con el comando MQTT exacto para la bomba (ejemplo: ON,2,0,0,0,0,0,0 para encender la bomba, OFF,2,0,0,0,0,0,0 para apagarla).\n"
-            "- Si la orden es para las luces, responde SOLO con el comando MQTT exacto para las luces (ejemplo: ON,0,0,0,0,0,0,0 para encender todas las luces).\n"
-            "- Si la orden no corresponde a un comando conocido, responde exactamente con: Comando no reconocido.\n"
-            "- No repitas ejemplos ni des explicaciones, responde solo con el comando.\n\n"
-            "EJEMPLOS:\n"
-            "Usuario: 'enciende la bomba del invernadero'\nRespuesta: ON,2,0,0,0,0,0,0\n"
-            "Usuario: 'apaga la bomba del invernadero'\nRespuesta: OFF,2,0,0,0,0,0,0\n"
-            "Usuario: 'enciende la bomba principal'\nRespuesta: ON,2,0,0,0,0,0,0\n"
-            "Usuario: 'apaga la bomba principal'\nRespuesta: OFF,2,0,0,0,0,0,0\n"
-            "Usuario: 'enciende la bomba de riego'\nRespuesta: ON,2,0,0,0,0,0,0\n"
-            "Usuario: 'apaga la bomba de riego'\nRespuesta: OFF,2,0,0,0,0,0,0\n"
-            "Usuario: 'enciende la bomba'\nRespuesta: ON,2,0,0,0,0,0,0\n"
-            "Usuario: 'apaga la bomba'\nRespuesta: OFF,2,0,0,0,0,0,0\n"
-            "Usuario: 'enciende las luces del invernadero'\nRespuesta: ON,0,0,0,0,0,0,0\n"
-            "Usuario: 'apaga las luces del invernadero'\nRespuesta: OFF,0,0,0,0,0,0,0\n"
-            "Usuario: 'enciende la luz de las plantas'\nRespuesta: ON,1,0,0,0,0,0,0\n"
-            "Usuario: 'enciende la luz principal'\nRespuesta: ON,0,0,0,0,0,0,0\n"
-            "Usuario: 'enciende la calefacción del invernadero'\nRespuesta: ON,3,0,0,0,0,0,0\n"
-            "Usuario: 'apaga la calefacción del invernadero'\nRespuesta: OFF,3,0,0,0,0,0,0\n"
-            "Usuario: 'enciende el ventilador'\nRespuesta: ON,4,0,0,0,0,0,0\n"
-            "Usuario: 'apaga el ventilador'\nRespuesta: OFF,4,0,0,0,0,0,0\n"
-            # Ejemplos negativos variados al final
+        result = None
+        # Similitud primero (opcional, puedes quitar si solo quieres el modelo)
+        if hasattr(AIAService, 'phrases'):
+            phrases = AIAService.phrases
+        else:
+            phrases = []
+        # Ejemplos dinámicos
+        ejemplos = ""
+        for p in phrases:
+            ejemplos += f"Usuario: '{p['text']}'\nRespuesta: {p['command']}\n"
+        # Ejemplos negativos
+        ejemplos += (
             "Usuario: 'qué hora es?'\nRespuesta: Comando no reconocido\n"
             "Usuario: 'dime la temperatura'\nRespuesta: Comando no reconocido\n"
             "Usuario: 'riego automático'\nRespuesta: Comando no reconocido\n"
             "Usuario: 'enciende la bomba y las luces'\nRespuesta: Comando no reconocido\n"
             "Usuario: 'cómo está el clima?'\nRespuesta: Comando no reconocido\n"
             "Usuario: 'cuál es el estado del invernadero?'\nRespuesta: Comando no reconocido\n"
-            "Usuario: 'analiza https://wahapedia.ru/wh40k10ed/factions/orks/Ghazghkull-Thraka'\nRespuesta: Comando no reconocido\n"
             "Usuario: 'enciende todo'\nRespuesta: Comando no reconocido\n"
             "Usuario: 'enciende la bomba y la calefacción'\nRespuesta: Comando no reconocido\n"
+        )
+        prompt = (
+            "Eres un controlador de invernadero.\n"
+            "INSTRUCCIONES:\n"
+            "- Si el usuario da una orden de encender/apagar dispositivos, responde SOLO con el comando MQTT exacto.\n"
+            "- Si la orden no corresponde a un comando conocido, responde exactamente con: Comando no reconocido.\n"
+            "- No repitas ejemplos ni des explicaciones, responde solo con un único comando.\n"
+            "- NO uses comillas en tu respuesta.\n\n"
+            "EJEMPLOS:\n"
+            f"{ejemplos}"
             f"Usuario: '{user_message}'\nRespuesta:"
         )
-        # Generar la respuesta usando directamente el método interno, evitando lógica de URLs
         messages = [
             {"role": "system", "content": prompt}
         ]
         respuesta = self._generate_response_internal(messages, max_length=max_length).strip()
-        # Devolver solo la primera línea (el comando MQTT o 'Comando no reconocido')
-        return respuesta.splitlines()[0].strip() if respuesta else respuesta 
+        # Limpiar la respuesta de comillas extra
+        comando_limpio = respuesta.splitlines()[0].strip() if respuesta else respuesta
+        comando_limpio = comando_limpio.strip("'\"")  # Quitar comillas simples y dobles
+        # Si es "Comando no reconocido", devolverlo tal cual
+        if comando_limpio.lower() == "comando no reconocido":
+            return comando_limpio
+        
+        topic = None
+        # Buscar el comando en la lista de phrases
+        json_response = None
+        for p in phrases:
+            if p["command"] == comando_limpio:
+                # Devolver el JSON completo pero con el text del mensaje original
+                topic = p["topic"]
+                json_response = json.dumps({
+                    "text": user_message,
+                    "command": p["command"],
+                    "topic": p["topic"],
+                    "protocol": p["protocol"]
+                }, ensure_ascii=False)
+                break
+        
+        # Si no se encuentra el comando en la lista, devolver solo el comando
+        if json_response is None:
+            json_response = comando_limpio
+        
+        # Enviar el comando MQTT de forma asíncrona en un hilo separado
+        if topic:
+            # Ejecutar en un hilo separado para no bloquear la respuesta
+            thread = threading.Thread(target=self._send_mqtt_async, args=(topic, comando_limpio))
+            thread.daemon = True
+            thread.start()
+        
+        return json_response
 
     def get_wahapedia_stats(self, user_message: str, max_length: int = 512) -> str:
         """

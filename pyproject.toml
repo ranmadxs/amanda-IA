@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "amanda-ia"
-version = "0.5.0"
+version = "0.6.0"
 description = "Amanda-IA Chat API"
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"
 packages = [{include = "amanda_ia"}]
 
 [tool.poetry.dependencies]
-python = ">=3.11,<4.0"
+python = ">=3.11.2,<3.14"
 coverage = "^7.5.4"
 tensorflow = "2.16.2"
 torch = "2.2.2"
@@ -25,6 +25,8 @@ protobuf = ">=3.20.3,<4.21.0"
 requests = "^2.31.0"
 beautifulsoup4 = "^4.12.3"
 python-dotenv = "^1.0.1"
+aia-read-svc = "^0.6.1"
+sentence-transformers = "^4.1.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"

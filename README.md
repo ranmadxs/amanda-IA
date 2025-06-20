@@ -1,5 +1,7 @@
 # 🚀 Amanda IA - Chat API.
 
+**Versión actual:** 0.6.0
+
 Este proyecto expone una API avanzada usando FastAPI para servir modelos QwenLM con integración especial para análisis de contenido de Wahapedia.
 
 ## ✨ Características Principales

@@ -1,3 +1,8 @@
+## [0.6.0] - 2025-06-19
+### Added/Changed/Fixed
+- ✨ Incremento de versión minor siguiendo el proceso de versionado automatizado.
+- ✨ Mejoras en la lógica de clasificación y robustez en la generación de URLs de Wahapedia.
+
 ## [0.5.0] - 2024-06-19
 
 ### Added

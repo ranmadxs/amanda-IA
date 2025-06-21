@@ -182,3 +182,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - Métodos `get_mqtt_command` y `_send_mqtt_async` de `AIAModels` (movidos a `MqttCommanderSvc`). 
+
+## [0.9.0] - YYYY-MM-DD
+### Added
+- Nueva dependencia `html2text` para conversión de HTML a Markdown.
+- Nuevo método `_html_to_markdown_html2text` en `HTMLExtractor` para una mejor conversión a Markdown.
+- Guardado automático de los resultados de conversión a Markdown en la carpeta `target/`.
+- Nuevo método `explain_stats_natural_language` para explicar las estadísticas de Wahapedia en lenguaje natural.
+- Nuevo método `classify_user_message_section` en `WahapediaSvC` para clasificar la intención del usuario (estadísticas, armas, estratagemas).
+
+### Changed
+- Refactorización del clasificador de secciones en `WahapediaSvC` para que se inicialice en el `__init__` y funcione como singleton, mejorando la eficiencia.
+- Mejorados los tests del clasificador con preguntas más realistas y variadas.
+
+### Fixed
+- Eliminados imports de librerías de dentro de los métodos, siguiendo las mejores prácticas. 

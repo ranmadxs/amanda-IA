@@ -1502,6 +1502,18 @@ lint = ["flake8"]
 test = ["pillow (>=8.2.0)", "pytest"]
 
 [[package]]
+name = "html2text"
+version = "2025.4.15"
+description = "Turn HTML into equivalent Markdown-structured text."
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "html2text-2025.4.15-py3-none-any.whl", hash = "sha256:00569167ffdab3d7767a4cdf589b7f57e777a5ed28d12907d8c58769ec734acc"},
+    {file = "html2text-2025.4.15.tar.gz", hash = "sha256:948a645f8f0bc3abe7fd587019a2197a12436cd73d0d4908af95bfc8da337588"},
+]
+
+[[package]]
 name = "httpcore"
 version = "1.0.9"
 description = "A minimal low-level HTTP client."
@@ -5929,4 +5941,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11.2,<3.14"
-content-hash = "afbbd1745f2942730088e77176a63d48f7f93d38a782f39a497f36d65843287a"
+content-hash = "d6511f87d2d959aed402aee960376c0423ef6cc7dd85b4d289d80ac816ad4d15"

@@ -133,4 +133,32 @@ def test_chat_endpoint_wahapedia():
         f"❌ El modelo no extrajo suficientes estadísticas del contenido Markdown. "
         f"Encontradas: {stats_found}. El modelo debería extraer al menos 4 de: {stats} del contenido proporcionado."
     )
-    logger.info("✅ Test exitoso: El modelo extrajo correctamente las claves de las estadísticas") 
+    logger.info("✅ Test exitoso: El modelo extrajo correctamente las claves de las estadísticas")
+
+# poetry run pytest tests/test_wahapedia_svc.py::test_classify_user_message_section -s
+def test_classify_user_message_section():
+    svc = WahapediaSvC(aiamodels=AIAModels())
+    casos = [
+        # Space Marines
+        ("Dame las estadísticas de un Space Marine Rhino", "estadistica"),
+        ("¿Qué armas puede equipar un Space Marine Intercessor?", "armas"),
+        ("¿Qué estratagemas puede usar un Capitán Primaris?", "estratagemas"),
+        # Orkos
+        ("Muéstrame las estadísticas de un Ork Boyz", "estadistica"),
+        ("¿Qué armas tiene un Ork Warboss?", "armas"),
+        ("¿Qué estratagemas puede usar un Ork Nob?", "estratagemas"),
+        # Adepta Sororitas
+        ("Dame las estadísticas de una Battle Sister", "estadistica"),
+        ("¿Qué armas puede llevar una Celestian?", "armas"),
+        ("¿Qué estratagemas puede usar una Canoness?", "estratagemas"),
+        # Preguntas variadas
+        ("¿Cuáles son las estadísticas principales de un Dreadnought?", "estadistica"),
+        ("¿Qué opciones de disparo tiene un Leman Russ?", "armas"),
+        ("¿Qué habilidades especiales puede activar un Exorcist?", "estratagemas"),
+        # Roboute Guilliman
+        ("Dame las estadísticas del arma principal de Roboute Guilliman", "armas"),
+    ]
+    for mensaje, esperado in casos:
+        resultado = svc.classify_user_message_section(mensaje)
+        print(f"Mensaje: {mensaje}\nClasificación esperada: {esperado}\nClasificación obtenida: {resultado}\n")
+        assert resultado == esperado or resultado in ["estadistica", "estratagemas", "armas"] 

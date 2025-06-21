@@ -20,7 +20,8 @@ def test_html_content():
     url = "https://wahapedia.ru/wh40k10ed/factions/space-marines/Lieutenant"
     
     # Obtener el contenido
-    content = html_extractor.get_wahapedia_content(url)
+    stats_content, weapons_content, stratagems_content = html_extractor.get_wahapedia_content(url)
+    content = stats_content
     
     # Verificar la respuesta
     logger.info(f"URL de prueba: {url}")
@@ -49,4 +50,30 @@ def test_html_content():
     logger.info(f"   - Tiene título: {has_title}")
     logger.info(f"   - Tiene estadísticas: {has_stats}")
     logger.info(f"   - Tiene descripción: {has_description}")
+
+# poetry run pytest tests/test_html_extractor.py::test_explain_stats_natural_language -s
+
+def test_explain_stats_natural_language():
+    extractor = HTMLExtractor()
+    markdown_stats = '''
+# Rhino(⌀Use model)
+
+## Estadísticas del Perfil
+- **M**: 12"
+- **T**: 9
+- **Sv**: 3+
+- **W**: 10
+- **Ld**: 6+
+- **OC**: 2
+
+**Tamaño del modelo**: (⌀Use model)
+
+## Descripción
+The Rhino transport has served the Space Marines for ten thousand years, and forms a part of many of their strike forces. With robust self-repair systems, the Rhino is a rugged vehicle that can swiftly navigate nightmare battlefields to deliver its deadly cargo of Space Marines into the heart of battle.
+'''
+    respuesta = extractor.explain_stats_natural_language(markdown_stats)
+    print("\nRespuesta explicativa:")
+    print(respuesta)
+    assert isinstance(respuesta, str)
+    assert "movimiento" in respuesta.lower() or "resistencia" in respuesta.lower() or "salvación" in respuesta.lower() or "liderazgo" in respuesta.lower() or "objetivos" in respuesta.lower()
   

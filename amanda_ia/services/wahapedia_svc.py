@@ -8,6 +8,8 @@ from aia_read_svc.wh40kSvc import Warhammer40KService
 from dotenv import load_dotenv
 from aia_utils.toml_utils import getVersion
 from amanda_ia.services.html_extractor import HTMLExtractor
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
 # Cargar variables de entorno
 load_dotenv()
 
@@ -21,6 +23,7 @@ class WahapediaSvC:
             os.environ.get('CLOUDKAFKA_TOPIC_PRODUCER'), 
             getVersion(), 
             os.getenv("WH40K_IMG_FILES_PATH"))
+        self.init_classifier()
 
     def get_url_base_unit(self, sentence: str, edition: str = "wh40k10ed", tokens_file: str = './resources/wh40k/wh40k_tokens.txt') -> tuple:
         with open(tokens_file, "r", encoding="utf-8") as f:
@@ -58,9 +61,9 @@ class WahapediaSvC:
             # Usar el extractor de la IA si está disponible, si no, crear uno nuevo
             html_extractor = getattr(self.aiamodels, 'html_extractor', None)
             if html_extractor is None:
-
                 html_extractor = HTMLExtractor()
-            content = html_extractor.get_wahapedia_content(wahapedia_url)
+            stats_content, weapons_content, stratagems_content = html_extractor.get_wahapedia_content(wahapedia_url)
+            content = stats_content
         except Exception as e:
             return f"Error al extraer contenido de Wahapedia: {str(e)}"
         prompt = (
@@ -80,3 +83,30 @@ class WahapediaSvC:
         ]
         respuesta = self.aiamodels._generate_response_internal(messages, max_length=max_length).strip()
         return f"{respuesta} - url: {wahapedia_url}"
+
+    def init_classifier(self):
+        """
+        Inicializa el modelo y embeddings para clasificación de secciones si no están ya inicializados (singleton).
+        """
+        if not hasattr(self, 'options_classifier'):
+            self.options_classifier = ["estadistica", "estratagemas", "armas"]
+        if not hasattr(self, 'model_classifier'):
+            self.model_classifier = SentenceTransformer('Qwen/Qwen3-Embedding-0.6B')
+        if not hasattr(self, 'options_embeddings_classifier'):
+            self.options_embeddings_classifier = self.model_classifier.encode(self.options_classifier)
+
+    def classify_user_message_section(self, user_message: str) -> str:
+        """
+        Clasifica el texto del usuario en 'estadistica', 'estratagemas' o 'armas' usando embeddings Qwen3-Embedding-0.6B.
+        """
+        try:
+            self.init_classifier()
+            # Embedding del mensaje del usuario
+            user_embedding = self.model_classifier.encode([user_message])[0]
+            # Calcular similitud de coseno
+            similarities = cosine_similarity([user_embedding], self.options_embeddings_classifier)[0]
+            best_idx = similarities.argmax()
+            return self.options_classifier[best_idx]
+        except Exception as e:
+            self.logger.error(f"Error en classify_user_message_section: {str(e)}")
+            return None

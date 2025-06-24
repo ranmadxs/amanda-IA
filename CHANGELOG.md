@@ -1,3 +1,47 @@
+## [0.10.0] - 2024-06-23
+### Added/Changed/Fixed
+- ✨ Extracción y guardado de archivos .md y .json en target/wh40k
+- 🛡️ Robustez en el manejo de clasificación y generación de URL en WahapediaSvC
+- 🧪 Tests de Wahapedia ahora aceptan None como respuesta para casos no clasificables
+- 🧹 Limpieza y organización automática de archivos de resultados
+
+## [0.9.0] - YYYY-MM-DD
+### Added
+- Nueva dependencia `html2text` para conversión de HTML a Markdown.
+- Nuevo método `_html_to_markdown_html2text` en `HTMLExtractor` para una mejor conversión a Markdown.
+- Guardado automático de los resultados de conversión a Markdown en la carpeta `target/`.
+- Nuevo método `explain_stats_natural_language` para explicar las estadísticas de Wahapedia en lenguaje natural.
+- Nuevo método `classify_user_message_section` en `WahapediaSvC` para clasificar la intención del usuario (estadísticas, armas, estratagemas).
+
+### Changed
+- Refactorización del clasificador de secciones en `WahapediaSvC` para que se inicialice en el `__init__` y funcione como singleton, mejorando la eficiencia.
+- Mejorados los tests del clasificador con preguntas más realistas y variadas.
+
+### Fixed
+- Eliminados imports de librerías de dentro de los métodos, siguiendo las mejores prácticas. 
+
+## [0.8.0] - YYYY-MM-DD
+### Added
+- Nuevo servicio `MqttCommanderSvc` para manejar comandos MQTT de forma independiente.
+- URL de Wahapedia agregada al final de las respuestas de estadísticas (`url={wahapedia_url}`).
+
+### Changed
+- Refactorización: Lógica de MQTT movida de `AIAModels` a `MqttCommanderSvc` para mejor separación de responsabilidades.
+- Tests actualizados para usar el nuevo servicio MQTT.
+
+### Removed
+- Métodos `get_mqtt_command` y `_send_mqtt_async` de `AIAModels` (movidos a `MqttCommanderSvc`).
+
+## [0.7.0] - YYYY-MM-DD
+### Added
+- Mejora visual del input de texto y alineación de radio buttons para tipo de chat.
+- Persistencia del historial de chat usando localStorage.
+- Botón pequeño con emoji de escoba 🧹 para borrar el historial de chat.
+
+### Changed
+- El formulario de tipo de chat ahora usa radio buttons (solo uno a la vez).
+- El endpoint `/status` reemplaza al antiguo `/` para healthcheck. 
+
 ## [0.6.2] - 2024-06-21
 ### Added/Changed/Fixed
 - ⬆️ Actualización de dependencia `aia-read-svc` a 0.6.2
@@ -160,40 +204,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ✨ Implementación inicial del proyecto Amanda-IA
 - ✨ API básica de chat con FastAPI
 - ✨ Integración con modelos de IA 
+ 
 
-## [0.7.0] - YYYY-MM-DD
-### Added
-- Mejora visual del input de texto y alineación de radio buttons para tipo de chat.
-- Persistencia del historial de chat usando localStorage.
-- Botón pequeño con emoji de escoba 🧹 para borrar el historial de chat.
-
-### Changed
-- El formulario de tipo de chat ahora usa radio buttons (solo uno a la vez).
-- El endpoint `/status` reemplaza al antiguo `/` para healthcheck. 
-
-## [0.8.0] - YYYY-MM-DD
-### Added
-- Nuevo servicio `MqttCommanderSvc` para manejar comandos MQTT de forma independiente.
-- URL de Wahapedia agregada al final de las respuestas de estadísticas (`url={wahapedia_url}`).
-
-### Changed
-- Refactorización: Lógica de MQTT movida de `AIAModels` a `MqttCommanderSvc` para mejor separación de responsabilidades.
-- Tests actualizados para usar el nuevo servicio MQTT.
-
-### Removed
-- Métodos `get_mqtt_command` y `_send_mqtt_async` de `AIAModels` (movidos a `MqttCommanderSvc`). 
-
-## [0.9.0] - YYYY-MM-DD
-### Added
-- Nueva dependencia `html2text` para conversión de HTML a Markdown.
-- Nuevo método `_html_to_markdown_html2text` en `HTMLExtractor` para una mejor conversión a Markdown.
-- Guardado automático de los resultados de conversión a Markdown en la carpeta `target/`.
-- Nuevo método `explain_stats_natural_language` para explicar las estadísticas de Wahapedia en lenguaje natural.
-- Nuevo método `classify_user_message_section` en `WahapediaSvC` para clasificar la intención del usuario (estadísticas, armas, estratagemas).
-
-### Changed
-- Refactorización del clasificador de secciones en `WahapediaSvC` para que se inicialice en el `__init__` y funcione como singleton, mejorando la eficiencia.
-- Mejorados los tests del clasificador con preguntas más realistas y variadas.
-
-### Fixed
-- Eliminados imports de librerías de dentro de los métodos, siguiendo las mejores prácticas. 

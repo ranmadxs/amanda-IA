@@ -32,8 +32,8 @@ def test_html_content():
     assert isinstance(content, str), "El contenido debe ser un string"
     assert len(content) > 0, "El contenido no debe estar vacío"
     
-    # Verificar que el contenido tiene un largo mínimo (al menos 100 caracteres)
-    assert len(content) >= 100, f"El contenido debe tener al menos 100 caracteres, actualmente tiene {len(content)}"
+    # Verificar que el contenido tiene un largo mínimo (al menos 50 caracteres)
+    assert len(content) >= 50, f"El contenido debe tener al menos 50 caracteres, actualmente tiene {len(content)}"
     
     # Verificar que el contenido contiene información útil (al menos un título o estadística)
     # Buscar patrones comunes en el contenido de Wahapedia

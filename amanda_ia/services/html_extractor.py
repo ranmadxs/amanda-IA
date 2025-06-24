@@ -51,7 +51,6 @@ class HTMLExtractor:
         weapons_div = soup.find('table', class_='wTable')
         stratagems_div = soup.find('div', class_='dsAbility_noLine')
        
-        self._html_to_markdown_html2text(stratagems_div)
         if banner_div:
             self.logger.debug("Elemento principal encontrado")
             # Convertir el HTML a formato Markdown
@@ -69,10 +68,10 @@ class HTMLExtractor:
             return text
     
     def _save_to_target_file(self, content: str, method_name: str):
-        """Guarda el contenido en un archivo con nombre que incluye fecha y hora en la carpeta target."""
+        """Guarda el contenido en un archivo con nombre que incluye fecha y hora en la carpeta target/wh40k."""
         try:
-            # Crear la carpeta target si no existe
-            target_dir = "target"
+            # Crear la carpeta target/wh40k si no existe
+            target_dir = os.path.join("target", "wh40k")
             if not os.path.exists(target_dir):
                 os.makedirs(target_dir)
             
@@ -143,9 +142,9 @@ class HTMLExtractor:
         try:
             # Configurar html2text
             h = html2text.HTML2Text()
-            h.ignore_links = False  # Mantener enlaces
+            h.ignore_links = True  # Mantener enlaces
             h.body_width = 0  # Sin límite de ancho
-            h.ignore_images = False  # Mantener imágenes
+            h.ignore_images = True  # Mantener imágenes
             h.ignore_emphasis = False  # Mantener énfasis (negrita, cursiva)
             h.ignore_tables = False  # Mantener tablas
             

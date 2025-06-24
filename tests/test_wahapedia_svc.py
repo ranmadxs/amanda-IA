@@ -3,6 +3,7 @@ import logging
 from aia_utils.logs_cfg import config_logger
 from amanda_ia.services.wahapedia_svc import WahapediaSvC
 from amanda_ia.services.ai_models import AIAModels
+import time
 
 config_logger()
 logger = logging.getLogger(__name__)
@@ -161,4 +162,131 @@ def test_classify_user_message_section():
     for mensaje, esperado in casos:
         resultado = svc.classify_user_message_section(mensaje)
         print(f"Mensaje: {mensaje}\nClasificación esperada: {esperado}\nClasificación obtenida: {resultado}\n")
-        assert resultado == esperado or resultado in ["estadistica", "estratagemas", "armas"] 
+        assert resultado == esperado or resultado in ["estadistica", "estratagemas", "armas"]
+
+@pytest.mark.integration
+# poetry run pytest tests/test_wahapedia_svc.py::test_chat_endpoint_wahapedia_armas -s
+def test_chat_endpoint_wahapedia_armas():
+    """
+    Test del endpoint de Wahapedia para extracción de armas.
+    """
+    aiamodels = AIAModels()
+    wahapedia_svc = WahapediaSvC(aiamodels)
+    
+    # Mensaje que debería clasificarse como "armas" y encontrar Space Marines Rhino
+    user_message = "¿Qué armas tiene el Rhino de Space Marines?"
+    
+    start_time = time.time()
+    response = wahapedia_svc.get_wahapedia_stats(user_message)
+    execution_time = time.time() - start_time
+    
+    logger.info(f"⏱️ Tiempo de ejecución: {execution_time:.2f} segundos")
+    logger.info(f"Mensaje de prueba: {user_message}")
+    logger.debug(f"Respuesta del modelo: {response}")
+    
+    # Verificar que la respuesta contiene información de armas en inglés
+    assert "**ARMAS**:" in response
+    assert "Disintegration combi-gun" in response or "Disintegration pistol" in response or "Close combat weapon" in response
+    
+    logger.info("✅ Test exitoso: El modelo extrajo correctamente información de armas")
+
+@pytest.mark.integration
+# poetry run pytest tests/test_wahapedia_svc.py::test_chat_endpoint_wahapedia_estratagemas -s
+def test_chat_endpoint_wahapedia_estratagemas():
+    """
+    Test del endpoint de Wahapedia para extracción de estratagemas.
+    """
+    aiamodels = AIAModels()
+    wahapedia_svc = WahapediaSvC(aiamodels)
+    
+    # Mensaje que debería clasificarse como "estratagemas" y encontrar Space Marines Rhino
+    user_message = "¿Qué estratagemas puede usar el Rhino de Space Marines?"
+    
+    start_time = time.time()
+    response = wahapedia_svc.get_wahapedia_stats(user_message)
+    execution_time = time.time() - start_time
+    
+    logger.info(f"⏱️ Tiempo de ejecución: {execution_time:.2f} segundos")
+    logger.info(f"Mensaje de prueba: {user_message}")
+    logger.debug(f"Respuesta del modelo: {response}")
+    
+    # Verificar que la respuesta contiene información de estratagemas en inglés y el costo en CP
+    assert "**ESTRATAGEMAS**:" in response
+    # Buscar algunos nombres y el formato (NOMBRE (XCP))
+    assert "ARMOUR OF CONTEMPT (1CP)" in response
+    assert "INSTANT OF GRACE (1CP)" in response
+    assert "NO THREAT TOO GREAT (2CP)" in response
+    # Verificar que hay descripciones en español (palabras clave típicas)
+    assert "descripción" in response or "estratagema" in response or "permite" in response
+    assert "url=" in response
+    logger.info("✅ Test exitoso: El modelo extrajo correctamente información de estratagemas")
+
+@pytest.mark.integration
+# poetry run pytest tests/test_wahapedia_svc.py::test_chat_endpoint_wahapedia_clasificacion_fallida -s
+def test_chat_endpoint_wahapedia_clasificacion_fallida():
+    """
+    Test del endpoint de Wahapedia cuando no se puede clasificar el mensaje.
+    """
+    aiamodels = AIAModels()
+    wahapedia_svc = WahapediaSvC(aiamodels)
+    
+    # Mensaje que no debería clasificarse en ninguna categoría
+    user_message = "blablsblsdzlaldasldalsdl"
+    
+    response = wahapedia_svc.get_wahapedia_stats(user_message)
+    
+    logger.info(f"Mensaje de prueba: {user_message}")
+    logger.debug(f"Respuesta del modelo: {response}")
+    
+    # Verificar que retorna None si no se puede clasificar
+    assert response is None
+
+@pytest.mark.integration
+# poetry run pytest tests/test_wahapedia_svc.py::test_classify_user_message_section -s
+def test_classify_user_message_section():
+    """
+    Test de la función de clasificación de mensajes.
+    """
+    aiamodels = AIAModels()
+    wahapedia_svc = WahapediaSvC(aiamodels)
+    
+    # Test casos de estadísticas
+    stats_messages = [
+        "¿Cuáles son las estadísticas del Rhino?",
+        "Dame el perfil del Rhino",
+        "¿Qué stats tiene el Rhino?",
+        "Estadísticas del Rhino"
+    ]
+    
+    for message in stats_messages:
+        result = wahapedia_svc.classify_user_message_section(message)
+        logger.info(f"Mensaje: '{message}' -> Clasificado como: {result}")
+        assert result in ["estadistica", "armas", "estratagemas"]
+    
+    # Test casos de armas
+    weapons_messages = [
+        "¿Qué armas tiene el Rhino?",
+        "Dame las armas del Rhino",
+        "¿Qué puede disparar el Rhino?",
+        "Armamento del Rhino"
+    ]
+    
+    for message in weapons_messages:
+        result = wahapedia_svc.classify_user_message_section(message)
+        logger.info(f"Mensaje: '{message}' -> Clasificado como: {result}")
+        assert result in ["estadistica", "armas", "estratagemas"]
+    
+    # Test casos de estratagemas
+    stratagem_messages = [
+        "¿Qué estratagemas puede usar el Rhino?",
+        "Dame las estratagemas del Rhino",
+        "¿Qué CP puede gastar el Rhino?",
+        "Estratagemas disponibles para el Rhino"
+    ]
+    
+    for message in stratagem_messages:
+        result = wahapedia_svc.classify_user_message_section(message)
+        logger.info(f"Mensaje: '{message}' -> Clasificado como: {result}")
+        assert result in ["estadistica", "armas", "estratagemas"]
+    
+    logger.info("✅ Test exitoso: La clasificación de mensajes funciona correctamente") 

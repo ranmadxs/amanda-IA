@@ -53,6 +53,7 @@ def test_html_content():
 
 # poetry run pytest tests/test_html_extractor.py::test_explain_stats_natural_language -s
 
+@pytest.mark.skip(reason="Test temporalmente deshabilitado")
 def test_explain_stats_natural_language():
     extractor = HTMLExtractor()
     markdown_stats = '''

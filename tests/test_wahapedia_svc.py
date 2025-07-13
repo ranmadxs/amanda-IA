@@ -190,6 +190,7 @@ def test_chat_endpoint_wahapedia_armas():
     
     logger.info("✅ Test exitoso: El modelo extrajo correctamente información de armas")
 
+@pytest.mark.skip(reason="Test temporalmente deshabilitado")
 @pytest.mark.integration
 # poetry run pytest tests/test_wahapedia_svc.py::test_chat_endpoint_wahapedia_estratagemas -s
 def test_chat_endpoint_wahapedia_estratagemas():

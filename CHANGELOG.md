@@ -1,11 +1,15 @@
-## [0.10.0] - 2024-06-23
+## [0.10.1] - 2025-07-12
+### Added
+- ✨ Feature add Test report
+
+## [0.10.0] - 2025-06-23
 ### Added/Changed/Fixed
 - ✨ Extracción y guardado de archivos .md y .json en target/wh40k
 - 🛡️ Robustez en el manejo de clasificación y generación de URL en WahapediaSvC
 - 🧪 Tests de Wahapedia ahora aceptan None como respuesta para casos no clasificables
 - 🧹 Limpieza y organización automática de archivos de resultados
 
-## [0.9.0] - YYYY-MM-DD
+## [0.9.0] - 2025-06-22
 ### Added
 - Nueva dependencia `html2text` para conversión de HTML a Markdown.
 - Nuevo método `_html_to_markdown_html2text` en `HTMLExtractor` para una mejor conversión a Markdown.
@@ -20,7 +24,7 @@
 ### Fixed
 - Eliminados imports de librerías de dentro de los métodos, siguiendo las mejores prácticas. 
 
-## [0.8.0] - YYYY-MM-DD
+## [0.8.0] - 2025-06-22
 ### Added
 - Nuevo servicio `MqttCommanderSvc` para manejar comandos MQTT de forma independiente.
 - URL de Wahapedia agregada al final de las respuestas de estadísticas (`url={wahapedia_url}`).
@@ -32,7 +36,7 @@
 ### Removed
 - Métodos `get_mqtt_command` y `_send_mqtt_async` de `AIAModels` (movidos a `MqttCommanderSvc`).
 
-## [0.7.0] - YYYY-MM-DD
+## [0.7.0] - 2025-06-21
 ### Added
 - Mejora visual del input de texto y alineación de radio buttons para tipo de chat.
 - Persistencia del historial de chat usando localStorage.
@@ -42,7 +46,7 @@
 - El formulario de tipo de chat ahora usa radio buttons (solo uno a la vez).
 - El endpoint `/status` reemplaza al antiguo `/` para healthcheck. 
 
-## [0.6.2] - 2024-06-21
+## [0.6.2] - 2025-06-21
 ### Added/Changed/Fixed
 - ⬆️ Actualización de dependencia `aia-read-svc` a 0.6.2
 - 🧹 Eliminados métodos internos no utilizados en `AIAModels` para mayor claridad

@@ -4,9 +4,9 @@ from datetime import datetime
 def is_profiling_enabled():
     """
     Verifica si el profiling está habilitado a través de una variable de entorno.
-    Configura 'ENABLE_PROFILING' a 'true' o '1' para habilitarlo.
+    Por defecto está habilitado. Configura 'ENABLE_PROFILING' a 'false' o '0' para deshabilitarlo.
     """
-    return os.getenv('ENABLE_PROFILING', 'false').lower() in ('true', '1')
+    return os.getenv('ENABLE_PROFILING', 'true').lower() not in ('false', '0')
 
 def get_profiling_output_path():
     """

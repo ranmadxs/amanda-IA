@@ -1,7 +1,5 @@
 import unittest
 from datetime import datetime
-from amanda_ia.services.ai_models import AIAModels
-from amanda_ia.services.wahapedia_svc import WahapediaSvC
 import logging
 from aia_utils.logs_cfg import config_logger
 import pytest
@@ -12,18 +10,8 @@ import re
 config_logger()
 logger = logging.getLogger(__name__)
 
-# Inicializar el modelo
-ai_models = AIAModels()
-wahapedia_svc = WahapediaSvC(aiamodels=ai_models)
-
-def verify_basic_response(response):
-    """Verifica las propiedades básicas de una respuesta."""
-    assert response is not None, "La respuesta no debe ser None"
-    assert isinstance(response, str), "La respuesta debe ser un string"
-    assert len(response) > 0, "La respuesta no debe estar vacía"
-
 # poetry run pytest tests/test_ai_models.py::test_simple_message -s
-def test_simple_message():
+def test_simple_message(ai_models, verify_basic_response):
     """Test para un mensaje simple 'hola'."""
     # Generar respuesta usando el nuevo método chat
     response = ai_models.chat("hola")
@@ -42,7 +30,7 @@ def test_simple_message():
     assert current_date_iso not in response, "La respuesta no debe contener la fecha ISO actual"
 
 # poetry run pytest tests/test_ai_models.py::test_date_question -s
-def test_date_question():
+def test_date_question(ai_models, verify_basic_response):
     """Test para verificar la respuesta cuando se pregunta por la fecha."""
     # Generar respuesta usando el nuevo método chat
     response = ai_models.chat("que fecha es hoy?")

@@ -1,3 +1,9 @@
+## [0.10.3] - 2025-07-13
+### Added
+- ✨ Optimized AIAModels singleton pattern for improved test performance
+- ✨ Enhanced test fixtures with session-scoped initialization
+- ✨ Profiling enabled by default for all test runs
+
 ## [0.10.2] - 2025-07-13
 ### Added
 - ✨ Enhanced test reporting with profiling integration and timestamped reports

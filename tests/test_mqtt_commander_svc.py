@@ -1,20 +1,14 @@
 import pytest
-from amanda_ia.services.ai_models import AIAModels
-from amanda_ia.services.mqtt_commander_svc import MqttCommanderSvc
 
 # poetry run pytest tests/test_mqtt_commander_svc.py::test_get_mqtt_command -s
 @pytest.mark.integration
-def test_get_mqtt_command():
+def test_get_mqtt_command(mqtt_commander_svc):
     """Test de integración para verificar que get_mqtt_command funciona correctamente."""
     print("🧪 Iniciando test de MqttCommanderSvc...")
     
-    # Inicializar servicios
-    ai_models = AIAModels()
-    mqtt_commander = MqttCommanderSvc(aiamodels=ai_models)
-    
     # Test con un comando válido
     test_message = "enciende la bomba"
-    response = mqtt_commander.get_mqtt_command(test_message)
+    response = mqtt_commander_svc.get_mqtt_command(test_message)
     
     print(f"📤 Mensaje de prueba: {test_message}")
     print(f"📥 Respuesta: {response}")

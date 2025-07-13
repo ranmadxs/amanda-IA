@@ -1,3 +1,7 @@
+## [0.10.2] - 2025-07-13
+### Added
+- ✨ Enhanced test reporting with profiling integration and timestamped reports
+
 ## [0.10.1] - 2025-07-12
 ### Added
 - ✨ Feature add Test report

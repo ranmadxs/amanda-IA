@@ -1,16 +1,15 @@
-# amanda-IA
+# Amanda-IA
 
-Amanda I.A.
+Agente IA tipo Claude Code. Proyecto base para ir agregando funcionalidades.
 
+## Instalación
 
-# Installing
-
-## Compiling
-```
-   mvn clean install
+```bash
+poetry install
 ```
 
-## Run
-```
-   mvn spring-boot:run
+## Uso
+
+```bash
+poetry run aia
 ```

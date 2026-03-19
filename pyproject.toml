@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "amanda-IA"
+version = "0.1.1-alpha.1"
+description = "Agente IA tipo Claude Code"
+authors = ["Edgar"]
+readme = "README.md"
+packages = [{include = "amanda_ia"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+rich = "^13.0.0"
+prompt_toolkit = "^3.0.0"
+
+[tool.poetry.scripts]
+aia = "amanda_ia.cli:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

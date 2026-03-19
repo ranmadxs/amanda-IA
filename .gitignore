@@ -1,5 +1,11 @@
-target/
-.classpath
-.project
-.settings/
-*.mp3
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+.env
+*.egg-info/
+dist/
+build/

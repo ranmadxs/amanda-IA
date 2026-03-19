@@ -26,22 +26,62 @@ from prompt_toolkit.styles import Style
 from rich.console import Console
 
 from amanda_ia.tools import get_tools, execute_tool
-from amanda_ia.config import get_mcp_display_names, get_mcp_servers
-from amanda_ia.mcp_client import get_mcp_server_info
+from amanda_ia.config import get_mcp_display_names, get_mcp_servers, get_mcp_servers_raw, set_mcp_server_enabled
+from amanda_ia.mcp_client import get_mcp_server_info, invalidate_mcp_cache
 from amanda_ia.classifier import classify_prompt
+from amanda_ia.classifier_cache import get as cache_get, set_ as cache_set, delete_all as cache_delete_all
 
 console = Console()
 
 
 OLLAMA_MODEL = os.environ.get("AIA_OLLAMA_MODEL", "llama3.1:8b")
 
-SYSTEM_PROMPT_TEMPLATE = """Eres un asistente útil. Tienes acceso a herramientas (tools) configuradas en .aia/settings.json y .aia/mcp.json.
+SYSTEM_PROMPT_BASE = """Eres un asistente útil. Tienes acceso a herramientas (tools) configuradas en .aia/settings.json y .aia/mcp.json.
 Usa las tools cuando el usuario lo necesite.
 
-IMPORTANTE para list_directory y operaciones de archivos: el directorio actual es {cwd}
-Cuando el usuario pida "carpeta actual", "este directorio" o similar, pasa path="{cwd}" a list_directory.
+IMPORTANTE: Cuando el usuario pida datos (listar, consultar, litros, porcentaje, nivel de agua), USA LA TOOL INMEDIATAMENTE. No preguntes "¿Quieres que...?" ni pidas confirmación. Ejecuta la tool y responde con el resultado. NUNCA respondas "no puedo" si tienes una tool que puede ayudar.
 
 Responde en español de forma natural."""
+
+# Fallback cuando mcp.json no tiene "systemPrompt" (opcional por servidor)
+SERVER_PROMPT_HINTS = {
+    "get_time": "Si el usuario pregunta la hora, fecha o \"qué hora es\", USA get_time (sin parámetros).",
+    "filesystem": "Para list_directory: el directorio actual es {cwd}. Cuando pida \"carpeta actual\", pasa path=\"{cwd}\".",
+    "mongodb": "MongoDB: conexión preconfigurada. NO pases host, port, username ni password. list-databases sin parámetros. list-collections requiere solo database. NUNCA inventes datos.",
+    "tinaja": "Acumulador/estanque: Para litros, porcentaje o nivel de agua, EJECUTA get_lectura_actual() YA. Si falla, usa calculate_tinaja_level(50). Responde con el resultado. NUNCA digas 'no puedo'.",
+}
+
+
+def _build_system_prompt(selected: list[str] | None, tools: list, cwd: str) -> str:
+    """
+    Construye el system prompt dinámicamente según los MCP/servidores cargados.
+    Solo incluye instrucciones para los servidores que están en uso.
+    """
+    if not tools:
+        return """Eres un asistente útil y amigable. No tienes herramientas en este momento.
+Responde en español de forma natural y cordial. Para saludos (hola, buenos días) responde breve y amablemente."""
+
+    hints = []
+    servers = get_mcp_servers()
+    server_by_name = {s.get("name"): s for s in servers if s.get("name")}
+
+    # Builtin get_time: siempre presente cuando hay tools
+    hints.append(SERVER_PROMPT_HINTS["get_time"])
+
+    # MCP: systemPrompt en mcp.json (opcional) o fallback de SERVER_PROMPT_HINTS
+    if selected:
+        for name in selected:
+            srv = server_by_name.get(name)
+            custom = srv.get("systemPrompt") if srv else None
+            if custom:
+                hints.append(custom.replace("{cwd}", cwd))
+            elif name in SERVER_PROMPT_HINTS:
+                hints.append(SERVER_PROMPT_HINTS[name].format(cwd=cwd))
+
+    parts = [SYSTEM_PROMPT_BASE]
+    if hints:
+        parts.append("\n\n" + "\n\n".join(f"IMPORTANTE: {h}" for h in hints))
+    return "\n".join(parts)
 
 
 def _get_version() -> str:
@@ -130,36 +170,130 @@ def _msg_to_dict(msg) -> dict:
     return d
 
 
+def _run_mcp_command(parts: list[str]) -> str:
+    """Ejecuta /mcp list o /mcp <name> disabled|enabled."""
+    if len(parts) == 2 and parts[1].lower() == "list":
+        servers = get_mcp_servers_raw()
+        if not servers:
+            return "[dim]No hay servidores MCP en .aia/mcp.json[/]"
+        lines = []
+        for s in servers:
+            name = s.get("name", "?")
+            typ = "HTTP" if s.get("url") else "stdio"
+            url_or_cmd = s.get("url") or f"{s.get('command', '')} {' '.join(str(a) for a in s.get('args', []))}"
+            enabled = s.get("enabled") is not False
+            status = "enabled" if enabled else "disabled"
+            kw = s.get("keywords", [])
+            kw_str = ", ".join(kw[:5]) + ("..." if len(kw) > 5 else "") if kw else "-"
+            lines.append(f"  {name}\n    tipo: {typ} | {status}\n    {url_or_cmd}\n    keywords: {kw_str}")
+        return "MCP servidores:\n\n" + "\n\n".join(lines)
+
+    if len(parts) == 3:
+        name, action = parts[1], parts[2].lower()
+        if action in ("disabled", "disable"):
+            if set_mcp_server_enabled(name, False):
+                invalidate_mcp_cache()
+                return f"[dim]{name} deshabilitado. No se considerará en clasificación.[/]"
+            return f"[dim red]No existe servidor '{name}'[/]"
+        if action in ("enabled", "enable"):
+            if set_mcp_server_enabled(name, True):
+                invalidate_mcp_cache()
+                return f"[dim]{name} habilitado.[/]"
+            return f"[dim red]No existe servidor '{name}'[/]"
+
+    return "[dim]Uso: /mcp list | /mcp <name> disabled|enabled[/]"
+
+
+def _keyword_fallback(message: str, servers: list) -> list[str]:
+    """
+    Si el clasificador devolvió [], intenta matchear por keywords.
+    Retorna servidores cuando el mensaje tiene 1+ keyword de ese servidor.
+    """
+    msg_lower = message.lower()
+    best: list[tuple[int, str]] = []
+    for s in servers:
+        name = s.get("name")
+        if not name:
+            continue
+        kw = s.get("keywords", [])
+        if not isinstance(kw, list):
+            continue
+        matches = sum(1 for k in kw if isinstance(k, str) and k.lower() in msg_lower)
+        if matches >= 1:
+            best.append((matches, name))
+    if not best:
+        return []
+    best.sort(reverse=True, key=lambda x: x[0])
+    return [name for _, name in best]
+
+
 def process(message: str, phase: dict[str, str] | None = None) -> str:
     """Envía el mensaje a Ollama con tools y devuelve la respuesta."""
-    servers = get_mcp_servers()
+    msg_stripped = message.strip()
+    msg_lower = msg_stripped.lower()
+
+    # Comandos slash
+    if msg_lower == "/cache delete":
+        cache_delete_all()
+        invalidate_mcp_cache()
+        return "[dim]Cache borrada (clasificador + MCP tools).[/]"
+
+    if msg_lower.startswith("/mcp "):
+        return _run_mcp_command(msg_stripped.split())
+
+    # Bypass: consultas de hora/fecha solo necesitan get_time (builtin), no MCP
+    _time_keywords = ("hora", "fecha", "qué hora", "dime la hora", "qué día", "qué fecha")
+    if any(k in msg_lower for k in _time_keywords):
+        selected = []
+        servers = []
+    else:
+        selected = None
+        servers = get_mcp_servers()
+
     server_names = [s["name"] for s in servers if s.get("name")]
 
     if servers:
-        if phase is not None:
-            phase["value"] = "Clasificando"  # noqa: B905
-        selected = classify_prompt(message, servers)
+        cached = cache_get(message)
+        if cached is not None:
+            if phase is not None:
+                phase["value"] = "Cacheando"  # noqa: B905
+            selected = cached
+        else:
+            if phase is not None:
+                phase["value"] = "Clasificando"  # noqa: B905
+            selected = classify_prompt(message, servers)
+            cache_set(message, selected)
+        # Fallback: si clasificador devolvió [] pero el mensaje coincide con keywords, usar esos MCP
+        if not selected:
+            selected = _keyword_fallback(message, servers)
+        # Bypass: consultas de temperatura → forzar carga de temperatura MCP
+        _temp_keywords = ("temperatura", "clima", "grados", "qué temperatura", "cómo está el clima")
+        if any(k in msg_lower for k in _temp_keywords) and any(s.get("name") == "temperatura" for s in servers):
+            if "temperatura" not in (selected or []):
+                selected = list(selected or []) + ["temperatura"]
     else:
-        selected = None  # Sin MCP: usar builtin
+        pass  # Sin servidores: mantener selected ([] si bypass hora, None si sin config)
 
-    if phase is not None:
-        phase["value"] = "Pensando"  # noqa: B905
-    # Sin MCP: builtin. Con MCP y clasificador devolvió []: no tools (saludo, etc.)
-    if selected is None:
-        tools = get_tools(None)
-    elif selected:
-        tools = get_tools(selected)
-    else:
-        tools = []
+    # selected=None: builtin + todos los MCP. selected=[]: solo builtin.
+    # selected=[...]: builtin + esos MCP. Siempre pasamos tools para que get_time funcione.
+    tools = get_tools(selected)
+
+    # Detectar si MCP no se cargaron (conexión fallida)
+    mcp_tools = [t for t in tools if isinstance(t, dict) and t.get("type") == "function"]
+    mcp_load_failed = selected and len(selected) > 0 and len(mcp_tools) == 0
+
     cwd = os.getcwd()
-    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(cwd=cwd)
+    system_prompt = _build_system_prompt(selected, tools, cwd)
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": message},
     ]
 
     try:
+        last_tool_result = None
         while True:
+            if phase is not None:
+                phase["value"] = "Generando Respuesta"  # noqa: B905
             response = ollama_chat(
                 model=OLLAMA_MODEL,
                 messages=messages,
@@ -168,17 +302,25 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
             msg = response.message
 
             if hasattr(msg, "tool_calls") and msg.tool_calls:
+                if phase is not None:
+                    phase["value"] = "Ejecutando"  # noqa: B905
                 messages.append(_msg_to_dict(msg))
                 for tc in msg.tool_calls:
                     name = tc.function.name
                     args = _normalize_arguments(getattr(tc.function, "arguments", None))
                     result = execute_tool(name, args)
+                    last_tool_result = result
                     messages.append({"role": "tool", "tool_name": name, "content": result})
                 continue
 
             content = (getattr(msg, "content", None) or "").strip()
             if content:
+                if mcp_load_failed:
+                    content += "\n\n[dim]Nota: No se cargaron las herramientas MCP. ¿Están los servidores corriendo? (ej: cd aia-mcp && poetry run mcp all --http). Prueba /cache delete si el clasificador falló.[/]"
                 return content
+            # Fallback: si el modelo no formateó la respuesta, usar el resultado de la tool
+            if last_tool_result:
+                return last_tool_result
             return "[dim]Sin respuesta.[/]"
 
     except Exception as e:
@@ -261,7 +403,7 @@ def run():
             app.exit(result=None)
             return True
         if text == "?":
-            append_output("exit - salir | quit - salir\n")
+            append_output("exit | quit - salir | /cache delete - borrar cache | /mcp list - listar MCP | /mcp <name> disabled|enabled\n")
             app.invalidate()
             return True
 

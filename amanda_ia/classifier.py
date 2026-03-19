@@ -63,4 +63,4 @@ def classify_prompt(message: str, servers: list[dict[str, Any]]) -> list[str]:
             return []  # Respuesta inválida: no cargar MCP
         except Exception:
             continue
-    return server_names  # Fallo técnico (ej. modelo no disponible): cargar todos
+    return []  # Fallo técnico: no cargar MCP (evita cargar todo por error)

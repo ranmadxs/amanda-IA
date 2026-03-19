@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "amanda-IA"
-version = "0.3.2-alpha.1"
+version = "0.4.0-alpha.1"
 description = "Agente IA tipo Claude Code"
 authors = ["Edgar"]
 readme = "README.md"
@@ -14,8 +14,19 @@ ollama = "^0.4.0"
 mcp = ">=1.0"
 python-dotenv = "^1.0.0"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+
 [tool.poetry.scripts]
 aia = "amanda_ia.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "readme: tests de prompts del README (requiere Ollama + capture_readme_responses.py)",
+    "ollama: tests que requieren Ollama corriendo",
+]
 
 [build-system]
 requires = ["poetry-core"]

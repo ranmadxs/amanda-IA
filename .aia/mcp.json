@@ -1,14 +1,36 @@
 {
   "servers": [
     {
+      "name": "mongodb",
+      "command": "npx",
+      "args": ["-y", "mongodb-mcp-server@latest"],
+      "env": {
+        "MDB_MCP_CONNECTION_STRING": "${MONGODB_URI}"
+      },
+      "keywords": ["mongodb", "mongo", "base de datos", "colección", "documento", "query", "insertar", "buscar"],
+      "systemPrompt": "MongoDB: conexión preconfigurada. NO pases host, port, username ni password. list-databases sin parámetros. list-collections requiere solo database. NUNCA inventes datos."
+    },
+    {
       "name": "temperatura",
       "url": "http://localhost:8001/mcp",
-      "keywords": ["temperatura", "clima", "ciudad", "tiempo", "grados", "°C", "clima"]
+      "keywords": ["temperatura", "clima", "ciudad", "tiempo", "grados", "°C", "qué temperatura", "cómo está el clima"],
+      "systemPrompt": "Temperatura/clima: USA get_temperature(city=\"nombre_ciudad\"). Ej: Santiago → city=\"Santiago\". Ejecuta YA. NUNCA digas 'no está disponible'."
     },
     {
       "name": "wahapedia",
       "url": "http://localhost:8002/mcp",
-      "keywords": ["warhammer", "40k", "wahapedia", "estadísticas", "unidad", "rhino", "space marine", "facción"]
+      "keywords": ["warhammer", "40k", "wahapedia", "estadísticas", "unidad", "rhino", "space marine", "facción"],
+      "cache": {
+        "enabled": true,
+        "dir": ".aia/cache/wahapedia",
+        "ttlDays": 60
+      }
+    },
+    {
+      "name": "tinaja",
+      "url": "http://localhost:8003/mcp",
+      "keywords": ["tinaja", "estanque", "acumulador", "nivel", "agua", "sensor", "litros", "capacidad", "disponibles", "porcentaje", "ocupada", "ocupado", "lectura", "tiempo real", "cuántos litros", "qué porcentaje"],
+      "systemPrompt": "Acumulador/estanque: Cuando pregunten litros, porcentaje o nivel de agua, EJECUTA get_lectura_actual() INMEDIATAMENTE (sin parámetros). Si no hay datos, usa calculate_tinaja_level(50). Responde SIEMPRE con el resultado de la tool. NUNCA digas 'no puedo'."
     },
     {
       "name": "filesystem",
@@ -21,7 +43,8 @@
         "/tmp"
       ],
       "enabled": true,
-      "keywords": ["archivo", "carpeta", "listar", "lista", "contenido", "leer", "escribir", "directorio", "buscar archivos", "crear"]
+      "keywords": ["archivo", "carpeta", "listar", "lista", "contenido", "leer", "escribir", "directorio", "buscar archivos", "crear"],
+      "systemPrompt": "Para list_directory: el directorio actual es {cwd}. Cuando pida \"carpeta actual\" o \"este directorio\", pasa path=\"{cwd}\"."
     }
   ]
 }

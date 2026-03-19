@@ -11,10 +11,7 @@ log = logging.getLogger(__name__)
 
 # Registry: nombre -> función. Tools disponibles para configurar en .aia/settings.json
 BUILTIN_REGISTRY = {
-    "get_temperature": builtin.get_temperature,
     "get_time": builtin.get_time,
-    "get_unit_stats": builtin.get_unit_stats,
-    "search_wahapedia": builtin.search_wahapedia,
 }
 
 # Cache de tools MCP (se llena al primer uso)
@@ -22,7 +19,9 @@ _mcp_tool_names: list[str] | None = None
 
 
 def _mcp_has_tool(name: str) -> bool:
-    """True si la tool está en MCP."""
+    """True si la tool está en MCP. No carga MCP si es builtin."""
+    if name in BUILTIN_REGISTRY:
+        return False
     global _mcp_tool_names
     if _mcp_tool_names is None:
         _mcp_tool_names = get_mcp_tools()
@@ -39,8 +38,11 @@ def get_tools(server_names: list[str] | None = None):
     """
     Lista de tools para Ollama: builtin desde .aia/settings.json + schemas MCP.
     Si server_names está definido, solo incluye tools de esos servidores MCP.
+    Si server_names == [] (clasificador devolvió vacío), no conecta a MCP.
     """
     tools: list = _get_builtin_tools()
+    if server_names is not None and len(server_names) == 0:
+        return tools  # Clasificador devolvió []: solo builtin (get_time, mcp_tool), sin MCP
     try:
         mcp_schemas = get_mcp_tool_schemas(server_names)
         tools.extend(mcp_schemas)

@@ -1,10 +1,10 @@
 """Configuración siguiendo el estándar de Claude.
 
-Rutas (como Claude):
+Rutas:
   Scope    │ Ruta
   ─────────┼──────────────────────────────────────────────────────
-  user     │ ~/.claude/settings.json
-  local    │ ./.claude/settings.local.json (relativo al proyecto)
+  user     │ ~/.aia/settings.json
+  local    │ ./.aia/settings.local.json (relativo al proyecto)
   project  │ ./.aia/mcp.json (lista dinámica de servidores MCP)
 
 Precedencia: user < project < local (local sobreescribe).
@@ -19,16 +19,28 @@ import os
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 def _home() -> Path:
     return Path.home()
 
 
 def _project_root() -> Path:
-    """Raíz del proyecto (donde está .claude o .aia)."""
+    """Raíz del proyecto (donde está .aia)."""
     cwd = Path.cwd()
-    for p in [cwd] + list(cwd.parents):
-        if (p / ".claude").is_dir() or (p / ".aia").is_dir():
+    # 1) cwd
+    if (cwd / ".aia").is_dir():
+        return cwd
+    # 2) subdirs (workspace con amanda-IA/, etc.)
+    for child in sorted(cwd.iterdir()):
+        if child.is_dir() and (child / ".aia").is_dir():
+            return child
+    # 3) padres
+    for p in cwd.parents:
+        if (p / ".aia").is_dir():
             return p
     return cwd
 
@@ -59,9 +71,9 @@ def get_settings() -> dict[str, Any]:
     home = _home()
     project = _project_root()
 
-    user_path = home / ".claude" / "settings.json"
-    project_path = project / ".claude" / "settings.json"
-    local_path = project / ".claude" / "settings.local.json"
+    user_path = home / ".aia" / "settings.json"
+    project_path = project / ".aia" / "settings.json"
+    local_path = project / ".aia" / "settings.local.json"
 
     settings = {}
     settings = _merge(settings, _load_json(user_path))
@@ -82,7 +94,7 @@ def get_tools_config() -> list[dict[str, Any]]:
     """
     Tools builtin habilitadas desde .aia/settings.json.
     Formato: {"tools": [{"name": "get_temperature", "enabled": true}, ...]}
-    Disponibles: get_temperature, get_time, get_unit_stats, search_wahapedia.
+    Disponibles: get_time.
     Similar a mcp.json servers.
     """
     project = _project_root()
@@ -92,6 +104,33 @@ def get_tools_config() -> list[dict[str, Any]]:
     if not isinstance(tools, list):
         return []
     return [t for t in tools if isinstance(t, dict) and t.get("enabled") is not False]
+
+
+def get_mcp_servers_raw() -> list[dict[str, Any]]:
+    """Todos los servidores de .aia/mcp.json (incluyendo deshabilitados)."""
+    project = _project_root()
+    mcp_path = project / ".aia" / "mcp.json"
+    data = _load_json(mcp_path)
+    servers = data.get("servers", [])
+    return [s for s in servers if isinstance(s, dict)]
+
+
+def set_mcp_server_enabled(name: str, enabled: bool) -> bool:
+    """Actualiza enabled de un servidor en .aia/mcp.json. Retorna True si OK."""
+    project = _project_root()
+    mcp_path = project / ".aia" / "mcp.json"
+    data = _load_json(mcp_path)
+    servers = data.get("servers", [])
+    if not isinstance(servers, list):
+        return False
+    for s in servers:
+        if s.get("name") == name:
+            s["enabled"] = enabled
+            mcp_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(mcp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            return True
+    return False
 
 
 def get_mcp_servers() -> list[dict[str, Any]]:
@@ -117,7 +156,9 @@ def get_mcp_servers() -> list[dict[str, Any]]:
         if s.get("enabled") is False:
             continue
         s = dict(s)
-        if s.get("url"):
+        if s.get("type") == "builtin":
+            result.append(s)
+        elif s.get("url"):
             result.append(s)
         elif s.get("command"):
             args = s.get("args", [])
@@ -126,6 +167,13 @@ def get_mcp_servers() -> list[dict[str, Any]]:
                 if isinstance(a, str) else a
                 for a in args
             ]
+            # Expandir ${VAR} en env desde os.environ
+            if "env" in s and isinstance(s["env"], dict):
+                s["env"] = {
+                    k: v if not (isinstance(v, str) and v.startswith("${") and v.endswith("}"))
+                    else os.environ.get(v[2:-1], v)
+                    for k, v in s["env"].items()
+                }
             result.append(s)
     return result
 
@@ -184,8 +232,8 @@ def get_config_paths() -> dict[str, str]:
     home = _home()
     project = _project_root()
     return {
-        "user": str(home / ".claude" / "settings.json"),
-        "local": str(project / ".claude" / "settings.local.json"),
+        "user": str(home / ".aia" / "settings.json"),
+        "local": str(project / ".aia" / "settings.local.json"),
         "project_mcp": str(project / ".aia" / "mcp.json"),
         "project_tools": str(project / ".aia" / "settings.json"),
     }

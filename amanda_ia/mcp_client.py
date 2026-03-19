@@ -111,12 +111,24 @@ _tool_map_cache: dict[str, dict[str, Any]] | None = None
 _schemas_cache: list[dict[str, Any]] | None = None
 
 
-def _fetch_all_server_tools() -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
-    """Obtiene tool_map y schemas en una sola pasada por los servidores."""
+def _fetch_server_tools(
+    server_names: list[str] | None = None,
+) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """
+    Conecta solo a los servidores indicados. Si server_names es None, conecta a todos.
+    Solo carga los MCP que realmente se necesitan.
+    """
     global _tool_map_cache, _schemas_cache
-    result_map: dict[str, dict[str, Any]] = {}
-    result_schemas: list[dict[str, Any]] = []
-    for server in get_mcp_servers():
+    servers = get_mcp_servers()
+    if server_names is not None:
+        servers = [s for s in servers if s.get("name") in server_names]
+    result_map: dict[str, dict[str, Any]] = dict(_tool_map_cache or {})
+    result_schemas: list[dict[str, Any]] = list(_schemas_cache or [])
+    loaded = {s.get("name") for s in result_map.values() if s.get("name")}
+    for server in servers:
+        name = server.get("name")
+        if name in loaded:
+            continue
         try:
             if server.get("url"):
                 names, schemas = anyio.run(_list_tools_http, server["url"])
@@ -127,6 +139,7 @@ def _fetch_all_server_tools() -> tuple[dict[str, dict[str, Any]], list[dict[str,
             for t in names:
                 result_map[t] = server
             result_schemas.extend(schemas)
+            loaded.add(name)
         except BaseException as e:
             msg = _format_mcp_error(e)
             log.warning("MCP server %s: %s", server.get("name", "?"), msg)
@@ -135,24 +148,23 @@ def _fetch_all_server_tools() -> tuple[dict[str, dict[str, Any]], list[dict[str,
     return result_map, result_schemas
 
 
-def _get_tool_to_server_map() -> dict[str, dict[str, Any]]:
-    """Mapa tool_name -> server config (url o command+args). Usa caché."""
-    if _tool_map_cache is not None:
+def _get_tool_to_server_map(server_names: list[str] | None = None) -> dict[str, dict[str, Any]]:
+    """Mapa tool_name -> server config. Si server_names, solo carga esos."""
+    if _tool_map_cache is not None and (server_names is None or not server_names):
         return _tool_map_cache
-    return _fetch_all_server_tools()[0]
+    return _fetch_server_tools(server_names)[0]
 
 
 def get_mcp_tool_schemas(server_names: list[str] | None = None) -> list[dict[str, Any]]:
     """
-    Schemas de tools MCP en formato Ollama para pasar a chat().
-    Si server_names está definido, filtra solo tools de esos servidores.
+    Schemas de tools MCP en formato Ollama.
+    Solo conecta a los servidores en server_names (no carga mongodb si no se necesita).
     """
-    if _schemas_cache is None or _tool_map_cache is None:
-        _fetch_all_server_tools()
-    schemas = _schemas_cache or []
+    if server_names is not None and len(server_names) == 0:
+        return []
+    tool_map, schemas = _fetch_server_tools(server_names)
     if not server_names:
         return schemas
-    tool_map = _tool_map_cache or {}
     return [
         s for s in schemas
         if tool_map.get(s.get("function", {}).get("name", ""), {}).get("name") in server_names

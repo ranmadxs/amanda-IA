@@ -1,3 +1,8 @@
 {
-  "tools": []
+  "tools": [
+    {"name": "get_time", "enabled": true}
+  ],
+  "classifierCache": {
+    "ttlHours": 6
+  }
 }

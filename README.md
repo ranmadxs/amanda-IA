@@ -14,25 +14,38 @@ poetry install
 poetry run aia
 ```
 
-## Cómo funcionan las tools
+## Configuración
 
-**Por defecto** (sin configurar nada): aia usa tools **builtin** (temperatura, hora) que viven en el propio proyecto. **No necesitas levantar ningún servidor** — funciona solo.
+- **`.aia/mcp.json`** — Servidores MCP (temperatura, wahapedia, filesystem, etc.)
+- **`.aia/settings.json`** — Tools builtin habilitadas (get_temperature, get_time, etc.)
 
-**Con MCP** (opcional): si quieres que las tools vengan de un servidor remoto (aia-mcp):
+Para levantar los servidores MCP (proyecto hermano [aia-mcp](../aia-mcp)):
 
-1. Levanta el servidor MCP en otra terminal:
-   ```bash
-   cd aia-mcp && poetry run mcp temperatura --http
-   ```
+```bash
+cd aia-mcp && poetry run mcp all --http
+```
 
-2. Crea un `.env` en la raíz del proyecto (o exporta la variable):
-   ```
-   MCP_URL=http://localhost:8001/mcp
-   ```
+## Ejemplos de preguntas
 
-3. Ejecuta aia:
-   ```bash
-   poetry run aia
-   ```
+### Warhammer 40K (Wahapedia)
 
-Si MCP_URL está definido pero el servidor no está levantado, aia hace **fallback** a las tools builtin (sigue funcionando). Cuando se conecta al MCP, el header muestra "Ollama + \<nombre del servidor\>" (ej: "Ollama + temperatura 1.26.0").
+- *¿Cuáles son las estadísticas de un Rhino?*
+- *Dame los datos de Saint Celestine*
+- *Stats de un Space Marine*
+- *Información de un Carnifex de Tyranids*
+- *Estadísticas de Guilliman*
+
+### Temperatura (ciudades de Chile y otras)
+
+- *¿Qué temperatura hay en Santiago?*
+- *¿Cómo está el clima en Santiago de Chile?*
+- *Temperatura en Buenos Aires*
+- *¿Cuántos grados hay en Lima?*
+
+### Sistema de archivos
+
+- *Lista el contenido de la carpeta actual*
+- *¿Qué hay en el directorio src?*
+- *Lee el archivo README.md*
+- *Busca archivos que contengan "test" en el nombre*
+- *Crea la carpeta docs/ejemplos*

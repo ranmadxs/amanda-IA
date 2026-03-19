@@ -1,0 +1,27 @@
+{
+  "servers": [
+    {
+      "name": "temperatura",
+      "url": "http://localhost:8001/mcp",
+      "keywords": ["temperatura", "clima", "ciudad", "tiempo", "grados", "°C", "clima"]
+    },
+    {
+      "name": "wahapedia",
+      "url": "http://localhost:8002/mcp",
+      "keywords": ["warhammer", "40k", "wahapedia", "estadísticas", "unidad", "rhino", "space marine", "facción"]
+    },
+    {
+      "name": "filesystem",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "${workspaceFolder}",
+        "${cwd}",
+        "/tmp"
+      ],
+      "enabled": true,
+      "keywords": ["archivo", "carpeta", "listar", "lista", "contenido", "leer", "escribir", "directorio", "buscar archivos", "crear"]
+    }
+  ]
+}

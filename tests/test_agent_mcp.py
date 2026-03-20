@@ -5,6 +5,7 @@ import re
 
 import pytest
 
+import amanda_ia.agent as agent_mod
 from amanda_ia.agent import _keyword_fallback, _run_mcp_command, process
 
 
@@ -93,6 +94,59 @@ class TestMcpCommand:
         result = process("/mcp list")
         assert "test" in result
         assert "MCP servidores" in result
+
+
+class TestModeCommand:
+    """Tests de /modo y activación de modo visual."""
+
+    def test_modo_lists_available_modes(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("amanda_ia.config._project_root", lambda: tmp_path)
+        (tmp_path / ".aia").mkdir(exist_ok=True)
+        (tmp_path / ".aia" / "mcp.json").write_text(
+            json.dumps(
+                {
+                    "servers": [
+                        {"name": "wahapedia", "url": "http://localhost:8002/mcp", "modo": "modo_warhammer"},
+                        {"name": "monitor", "url": "http://localhost:8003/mcp", "modo": "modo_monitor"},
+                    ]
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        result = process("/modo")
+        assert "Modos disponibles" in result
+        assert "warhammer" in result
+        assert "monitor" in result
+
+    def test_modo_activates_even_if_mode_server_disabled(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("amanda_ia.config._project_root", lambda: tmp_path)
+        (tmp_path / ".aia").mkdir(exist_ok=True)
+        (tmp_path / ".aia" / "mcp.json").write_text(
+            json.dumps(
+                {
+                    "servers": [
+                        {
+                            "name": "wahapedia",
+                            "url": "http://localhost:8002/mcp",
+                            "modo": "modo_warhammer",
+                            "enabled": False,
+                        }
+                    ]
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        prev = agent_mod._active_mode
+        try:
+            result = process("/modo warhammer")
+            assert "activado" in result
+            assert agent_mod._active_mode == "modo_warhammer"
+        finally:
+            agent_mod._active_mode = prev
 
 
 class TestKeywordFallback:

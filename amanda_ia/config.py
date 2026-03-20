@@ -30,18 +30,30 @@ def _home() -> Path:
 
 def _project_root() -> Path:
     """Raíz del proyecto (donde está .aia)."""
+    env_root = os.environ.get("AIA_PROJECT_ROOT")
+    if env_root:
+        p = Path(env_root).expanduser()
+        if (p / ".aia").is_dir():
+            return p
+
     cwd = Path.cwd()
     # 1) cwd
     if (cwd / ".aia").is_dir():
         return cwd
-    # 2) subdirs (workspace con amanda-IA/, etc.)
-    for child in sorted(cwd.iterdir()):
-        if child.is_dir() and (child / ".aia").is_dir():
-            return child
-    # 3) padres
+    # 2) padres
     for p in cwd.parents:
         if (p / ".aia").is_dir():
             return p
+
+    # 3) raíz del paquete actual (amanda-IA/), útil en workspaces multi-proyecto
+    package_root = Path(__file__).resolve().parent.parent
+    if (package_root / ".aia").is_dir():
+        return package_root
+
+    # 4) subdirs (último recurso)
+    for child in sorted(cwd.iterdir()):
+        if child.is_dir() and (child / ".aia").is_dir():
+            return child
     return cwd
 
 

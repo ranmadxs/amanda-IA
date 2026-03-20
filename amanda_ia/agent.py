@@ -554,16 +554,21 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
     msg_lower = msg_stripped.lower()
 
     # Comandos slash: /modo <nombre>
-    if msg_lower.startswith("/modo "):
-        mode_name = msg_lower[6:].strip()
-        mode_key = f"modo_{mode_name}" if mode_name and not mode_name.startswith("modo_") else mode_name
-        servers = get_mcp_servers()
-        if any(s.get("modo") == mode_key for s in servers):
+    if msg_lower.startswith("/modo"):
+        raw_mode = msg_lower[len("/modo"):].strip()
+        available_modes = _get_available_modes()
+        if not raw_mode:
+            return f"[dim]Modos disponibles: {', '.join(available_modes)}[/]" if available_modes else "[dim]No hay modos disponibles.[/]"
+
+        mode_name = raw_mode.replace(" ", "_")
+        mode_key = f"modo_{mode_name}" if not mode_name.startswith("modo_") else mode_name
+        # Validar contra mcp.json raw para no depender de MCPs activos/habilitados.
+        if mode_key.replace("modo_", "", 1) in available_modes:
             _active_mode = mode_key
             _conversation_history.clear()
-            label = mode_name.replace("_", " ").title()
+            label = mode_key.replace("modo_", "", 1).replace("_", " ").title()
             return f"[dim]Modo {label} activado. Escribe 'exit' para salir.[/]"
-        return f"[dim]Modo '{mode_name}' no existe. Modos: {', '.join(_get_available_modes())}[/]"
+        return f"[dim]Modo '{raw_mode}' no existe. Modos: {', '.join(available_modes)}[/]"
 
     if msg_lower == "/cache delete":
         cache_delete_all()

@@ -236,3 +236,77 @@ def invalidate_mcp_cache() -> None:
     global _tool_map_cache, _schemas_cache
     _tool_map_cache = None
     _schemas_cache = None
+
+
+async def _list_tools_described(server: dict[str, Any]) -> list[tuple[str, str]]:
+    """Retorna [(tool_name, description), ...] conectando directamente al servidor."""
+    if server.get("url"):
+        async with streamable_http_client(server["url"]) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.list_tools()
+                return [(t.name, getattr(t, "description", "") or "") for t in result.tools]
+    elif server.get("command"):
+        params = StdioServerParameters(
+            command=server["command"],
+            args=server.get("args", []),
+            env=server.get("env"),
+            cwd=server.get("cwd"),
+        )
+        async with stdio_client(params, errlog=_STDIO_ERRLOG) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.list_tools()
+                return [(t.name, getattr(t, "description", "") or "") for t in result.tools]
+    return []
+
+
+def get_mode_help(mode_key: str) -> str:
+    """
+    Conecta a los servidores del modo activo e introspecciona sus tools.
+    Retorna texto formateado con nombre y descripción de cada tool.
+    mode_key: ej. 'modo_warhammer' o 'modo_monitor'
+    """
+    from amanda_ia.config import get_mcp_servers_raw, get_mcp_servers
+
+    raw = get_mcp_servers_raw()
+    mode_servers_raw = [s for s in raw if s.get("modo") == mode_key]
+    if not mode_servers_raw:
+        return f"No hay servidores configurados para {mode_key}."
+
+    # Usar los habilitados (get_mcp_servers filtra disabled)
+    enabled_names = {s.get("name") for s in get_mcp_servers()}
+    mode_label = mode_key.replace("modo_", "").replace("_", " ").title()
+    lines = [f"Modo {mode_label} — tools disponibles\n"]
+
+    for srv_raw in mode_servers_raw:
+        name = srv_raw.get("name", "?")
+        url = srv_raw.get("url", "")
+        if name not in enabled_names:
+            lines.append(f"  [{name}] deshabilitado — omitido\n")
+            continue
+        # Usar la config procesada (con sustitución de vars)
+        enabled_servers = get_mcp_servers()
+        srv = next((s for s in enabled_servers if s.get("name") == name), None)
+        if not srv:
+            continue
+        addr = url or srv.get("command", "")
+        lines.append(f"  Servidor: {name}  ({addr})\n")
+        try:
+            tools = anyio.run(_list_tools_described, srv)
+        except BaseException as e:
+            msg = _format_mcp_error(e)
+            lines.append(f"  No se pudo conectar: {msg}\n")
+            lines.append(f"  ¿Está el servidor corriendo?\n")
+            continue
+        if not tools:
+            lines.append("  (sin tools)\n")
+            continue
+        max_len = max(len(t[0]) for t in tools)
+        for tool_name, desc in tools:
+            pad = " " * (max_len - len(tool_name) + 2)
+            desc_str = desc if desc else "(sin descripción)"
+            lines.append(f"  {tool_name}{pad}{desc_str}\n")
+        lines.append("\n")
+
+    return "".join(lines).rstrip() + "\n"

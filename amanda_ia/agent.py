@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import os
+import subprocess
 import time
 from pathlib import Path
 import tomllib
@@ -18,44 +19,41 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.eventloop.utils import call_soon_threadsafe, run_in_executor_with_context
 from prompt_toolkit.layout import HSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
-from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
+from prompt_toolkit.mouse_events import MouseEventType
+
+
+def _scroll_window_up(w: "Window", b: "Buffer", step: int = 3) -> None:
+    """Scrollea la ventana `w` hacia arriba `step` líneas visuales."""
+    if not (w and w.render_info):
+        return
+    first_row = w.render_info.first_visible_line()
+    b.cursor_position = b.document.translate_row_col_to_index(first_row, 0)
+    w.vertical_scroll = max(0, w.render_info.vertical_scroll - step)
+
+
+def _scroll_window_down(w: "Window", b: "Buffer", step: int = 3) -> None:
+    """Scrollea la ventana `w` hacia abajo `step` líneas visuales."""
+    if not (w and w.render_info):
+        return
+    last_row = w.render_info.last_visible_line()
+    max_row = max(0, b.document.line_count - 1)
+    b.cursor_position = b.document.translate_row_col_to_index(min(last_row, max_row), 0)
+    w.vertical_scroll = w.render_info.vertical_scroll + step
 
 
 class _ScrollableBufferControl(BufferControl):
     """
-    BufferControl que maneja SCROLL_UP/DOWN moviendo el cursor para poder
-    escrollear más allá del límite vertical_scroll=0 (bug en Window._scroll_up).
+    BufferControl para el output.
+    - click: manejado por focus_on_click=True (comportamiento original)
+    - scroll rueda: delegado a _scroll_window_up/down via Keys.ScrollUp/Down
     """
-
-    def mouse_handler(self, mouse_event: MouseEvent):
-        if mouse_event.event_type == MouseEventType.SCROLL_UP:
-            b = self.buffer
-            row = b.document.cursor_position_row
-            if row > 0:
-                step = min(5, row)
-                new_row = max(0, row - step)
-                b.cursor_position = b.document.translate_row_col_to_index(new_row, 0)
-                get_app().invalidate()
-            return None
-        if mouse_event.event_type == MouseEventType.SCROLL_DOWN:
-            b = self.buffer
-            row = b.document.cursor_position_row
-            max_row = max(0, b.document.line_count - 1)
-            if row < max_row:
-                step = min(5, max_row - row)
-                new_row = min(max_row, row + step)
-                b.cursor_position = b.document.translate_row_col_to_index(new_row, 0)
-                get_app().invalidate()
-            return None
-        return super().mouse_handler(mouse_event)
+    _window: "Window | None" = None  # inyectado después de crear el Window
 from prompt_toolkit.document import Document
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.bindings.page_navigation import (
     scroll_page_up,
     scroll_page_down,
-    scroll_backward,
-    scroll_forward,
 )
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout.processors import BeforeInput
@@ -69,7 +67,7 @@ from rich.console import Console
 from amanda_ia.tools import get_tools, execute_tool
 from amanda_ia.config import get_mcp_display_names, get_mcp_servers, get_mcp_servers_raw, set_mcp_server_enabled
 from amanda_ia.config import _project_root
-from amanda_ia.mcp_client import get_mcp_server_info, invalidate_mcp_cache, get_server_name_for_tool
+from amanda_ia.mcp_client import get_mcp_server_info, invalidate_mcp_cache, get_server_name_for_tool, get_mode_help
 from amanda_ia.classifier import classify_prompt
 from amanda_ia.classifier_cache import get as cache_get, set_ as cache_set, delete_all as cache_delete_all
 from amanda_ia import live_monitor
@@ -413,6 +411,8 @@ def _get_all_slash_commands() -> list[str]:
     """Todos los comandos slash disponibles (para filtrar por aproximación)."""
     modes = _get_available_modes()
     cmds = ["/mcp list", "/cache delete", "/flush all", "/flush ollama", "/flush cache", "/flush history"]
+    if _active_mode:
+        cmds.insert(0, "/help")
     if _active_mode == "modo_monitor":
         cmds.insert(0, "/watch")
     return cmds + [f"/modo {m}" for m in modes]
@@ -569,6 +569,11 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
             label = mode_key.replace("modo_", "", 1).replace("_", " ").title()
             return f"[dim]Modo {label} activado. Escribe 'exit' para salir.[/]"
         return f"[dim]Modo '{raw_mode}' no existe. Modos: {', '.join(available_modes)}[/]"
+
+    if msg_lower == "/help":
+        if not _active_mode:
+            return "[dim]Sin modo activo. Usa /modo <nombre> para activar uno.[/]"
+        return get_mode_help(_active_mode)
 
     if msg_lower == "/cache delete":
         cache_delete_all()
@@ -862,8 +867,10 @@ def run():
     output_text_area = Window(
         content=output_control,
         wrap_lines=True,
+        # NOTE: output_control._window se inyecta justo abajo
         right_margins=[ScrollbarMargin(display_arrows=True)],
     )
+    output_control._window = output_text_area  # inyectar referencia para scroll
 
     def append_output(text: str) -> None:
         output_buffer.cursor_position = len(output_buffer.text)
@@ -891,7 +898,7 @@ def run():
         if text and text != "?":
             input_history.append_string(text)
         if text == "?":
-            append_output("exit | quit - salir | /modo warhammer | /cache delete | /flush all|ollama|cache|history | /mcp list | /mcp <name> disabled|enabled\n")
+            append_output("exit | quit - salir | ! <cmd> - shell | /modo warhammer | /cache delete | /flush all|ollama|cache|history | /mcp list | /mcp <name> disabled|enabled\n")
             app.invalidate()
             return True
 
@@ -913,6 +920,43 @@ def run():
                 else:
                     topic = os.environ.get("MQTT_TOPIC_OUT", "MQTT")
                     append_output(f"Monitor en vivo  {topic}\nEscribe /watch para detener.\n\n")
+            app.invalidate()
+            return True
+
+        # ! <cmd>: ejecutar comando de shell directamente (no interactivo)
+        if text.startswith("!"):
+            cmd = text[1:].strip()
+            if not cmd:
+                append_output("Uso: ! <comando>  (ej: ! ls -la)\n\n")
+                app.invalidate()
+                return True
+            _interactive = ("vim", "vi", "nano", "less", "more", "top", "htop",
+                            "man", "watch", "ssh", "ftp", "python", "ipython",
+                            "bash", "zsh", "sh", "fish")
+            first_word = cmd.split()[0].split("/")[-1]
+            if first_word in _interactive:
+                append_output(f"'{first_word}' es interactivo y no puede correr aquí.\n\n")
+                app.invalidate()
+                return True
+            append_output("› " + text + "\n")
+            app.invalidate()
+            try:
+                result = subprocess.run(
+                    cmd, shell=True, capture_output=True, text=True, timeout=30
+                )
+                out = result.stdout
+                err = result.stderr
+                if out:
+                    append_output(out if out.endswith("\n") else out + "\n")
+                if err:
+                    append_output(err if err.endswith("\n") else err + "\n")
+                if not out and not err:
+                    append_output(f"[exit {result.returncode}]\n")
+            except subprocess.TimeoutExpired:
+                append_output("Timeout (30s).\n")
+            except Exception as e:
+                append_output(f"Error: {e}\n")
+            append_output("\n")
             app.invalidate()
             return True
 
@@ -1004,15 +1048,16 @@ def run():
 
     @kb.add(Keys.ScrollUp)
     def _on_scroll_up(event):
-        """Scroll del mouse: subir cuando output está enfocado. Usar scroll_backward para poder pasar entre preguntas."""
-        if event.app.layout.current_buffer == output_buffer:
-            scroll_backward(event, half=True)
+        """Scroll rueda arriba (mouse_support=True): scrollea el output."""
+        _scroll_window_up(output_text_area, output_buffer)
+        event.app.invalidate()
 
     @kb.add(Keys.ScrollDown)
     def _on_scroll_down(event):
-        """Scroll del mouse: bajar cuando output está enfocado."""
-        if event.app.layout.current_buffer == output_buffer:
-            scroll_forward(event, half=True)
+        """Scroll rueda abajo (mouse_support=True): scrollea el output."""
+        _scroll_window_down(output_text_area, output_buffer)
+        event.app.invalidate()
+
 
     @kb.add("escape")
     def _on_escape(event):
@@ -1049,6 +1094,11 @@ def run():
             pass
         t = (input_buffer.text or "").strip()
         scroll_hint = " | Shift+Tab para scroll"
+        if t.startswith("!"):
+            cmd = t[1:].strip()
+            if cmd:
+                return f"! {cmd}  →  shell{scroll_hint}"
+            return f"! <comando>  ejecutar shell directo (ej: ! ls -la){scroll_hint}"
         if t.startswith("/"):
             completions = _get_slash_completions(t)
             if not completions:
@@ -1076,7 +1126,7 @@ def run():
             return [("bold fg:#e74c3c", "● EN VIVO"), ("#888888", " | /watch para detener | Escape para detener")]
         if _active_mode:
             mode_label = f"Modo {_active_mode.replace('modo_', '')} activo"
-            rest = f" | exit o Escape para salir{scroll_hint}"
+            rest = f" | /help | exit o Escape para salir{scroll_hint}"
             if _active_mode == "modo_warhammer":
                 return [("bold fg:#9b59b6", mode_label), ("#888888", rest)]
             if _active_mode == "modo_monitor":
@@ -1119,7 +1169,7 @@ def run():
         full_screen=True,
         style=DynamicStyle(_scrollbar_style),
         erase_when_done=True,
-        mouse_support=True,
+        mouse_support=not bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT")),
         enable_page_navigation_bindings=True,
     )
 

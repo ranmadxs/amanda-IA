@@ -2,6 +2,7 @@
 
 import json
 import re
+from pathlib import Path
 
 import pytest
 
@@ -215,7 +216,7 @@ class TestGetTimeIntegration:
     """Test de integración: pregunta la hora al modelo y valida que la respuesta incluya hora."""
 
     @pytest.mark.ollama
-    def test_que_hora_es_devuelve_hora_en_respuesta(self, tmp_path, monkeypatch):
+    def test_que_hora_es_devuelve_hora_en_respuesta(self, tmp_path, monkeypatch):  # noqa: F811
         """Simula aia -m 'qué hora es': la respuesta debe contener un patrón de hora (HH:MM o HH:MM:SS)."""
         monkeypatch.setattr("amanda_ia.config._project_root", lambda: tmp_path)
         (tmp_path / ".aia").mkdir(exist_ok=True)
@@ -234,3 +235,131 @@ class TestGetTimeIntegration:
         assert time_pattern.search(response), (
             f"La respuesta debe contener una hora (HH:MM o HH:MM:SS). Obtuvo: {response[:150]}..."
         )
+
+
+class TestModesInProject:
+    """Garantiza que los modos warhammer y monitor existen en el mcp.json real del proyecto."""
+
+    MCP_JSON = Path(__file__).parent.parent / ".aia" / "mcp.json"
+    REQUIRED_MODES = {"modo_warhammer", "modo_monitor"}
+
+    def _load_servers(self):
+        assert self.MCP_JSON.exists(), f"No se encontró {self.MCP_JSON}"
+        data = json.loads(self.MCP_JSON.read_text(encoding="utf-8"))
+        return data.get("servers", [])
+
+    def test_mcp_json_has_warhammer_mode(self):
+        """Debe existir al menos un server con modo_warhammer en .aia/mcp.json."""
+        servers = self._load_servers()
+        modos = {s.get("modo") for s in servers}
+        assert "modo_warhammer" in modos, (
+            "No hay ningún server con modo_warhammer en .aia/mcp.json"
+        )
+
+    def test_mcp_json_has_monitor_mode(self):
+        """Debe existir al menos un server con modo_monitor en .aia/mcp.json."""
+        servers = self._load_servers()
+        modos = {s.get("modo") for s in servers}
+        assert "modo_monitor" in modos, (
+            "No hay ningún server con modo_monitor en .aia/mcp.json"
+        )
+
+    def test_modo_warhammer_activates(self, monkeypatch):
+        """'/modo warhammer' activa modo_warhammer usando el mcp.json real."""
+        monkeypatch.setattr(
+            "amanda_ia.config._project_root",
+            lambda: self.MCP_JSON.parent.parent,
+        )
+        prev = agent_mod._active_mode
+        try:
+            result = process("/modo warhammer")
+            assert "activado" in result, f"Esperaba 'activado', obtuvo: {result}"
+            assert agent_mod._active_mode == "modo_warhammer"
+        finally:
+            agent_mod._active_mode = prev
+
+    def test_modo_monitor_activates(self, monkeypatch):
+        """'/modo monitor' activa modo_monitor usando el mcp.json real."""
+        monkeypatch.setattr(
+            "amanda_ia.config._project_root",
+            lambda: self.MCP_JSON.parent.parent,
+        )
+        prev = agent_mod._active_mode
+        try:
+            result = process("/modo monitor")
+            assert "activado" in result, f"Esperaba 'activado', obtuvo: {result}"
+            assert agent_mod._active_mode == "modo_monitor"
+        finally:
+            agent_mod._active_mode = prev
+
+    def test_watch_only_visible_in_monitor_mode(self, monkeypatch):
+        """/watch aparece en completions solo cuando modo_monitor está activo."""
+        monkeypatch.setattr(
+            "amanda_ia.config._project_root",
+            lambda: self.MCP_JSON.parent.parent,
+        )
+        prev = agent_mod._active_mode
+        try:
+            agent_mod._active_mode = None
+            cmds_general = agent_mod._get_all_slash_commands()
+            assert "/watch" not in cmds_general, "/watch no debe aparecer fuera de modo_monitor"
+
+            agent_mod._active_mode = "modo_monitor"
+            cmds_monitor = agent_mod._get_all_slash_commands()
+            assert "/watch" in cmds_monitor, "/watch debe aparecer en modo_monitor"
+        finally:
+            agent_mod._active_mode = prev
+
+    def test_help_only_visible_when_mode_active(self, monkeypatch):
+        """/help aparece en completions solo cuando hay un modo activo."""
+        monkeypatch.setattr(
+            "amanda_ia.config._project_root",
+            lambda: self.MCP_JSON.parent.parent,
+        )
+        prev = agent_mod._active_mode
+        try:
+            agent_mod._active_mode = None
+            cmds = agent_mod._get_all_slash_commands()
+            assert "/help" not in cmds, "/help no debe aparecer sin modo activo"
+
+            agent_mod._active_mode = "modo_warhammer"
+            cmds = agent_mod._get_all_slash_commands()
+            assert "/help" in cmds, "/help debe aparecer con modo activo"
+        finally:
+            agent_mod._active_mode = prev
+
+    def test_help_without_mode_returns_hint(self, monkeypatch):
+        """/help sin modo activo responde con mensaje orientativo."""
+        monkeypatch.setattr(
+            "amanda_ia.config._project_root",
+            lambda: self.MCP_JSON.parent.parent,
+        )
+        prev = agent_mod._active_mode
+        try:
+            agent_mod._active_mode = None
+            result = process("/help")
+            assert "modo" in result.lower(), f"Esperaba mención de 'modo', obtuvo: {result}"
+        finally:
+            agent_mod._active_mode = prev
+
+    def test_help_calls_get_mode_help_when_mode_active(self, monkeypatch):
+        """/help con modo activo llama get_mode_help con el modo correcto."""
+        monkeypatch.setattr(
+            "amanda_ia.config._project_root",
+            lambda: self.MCP_JSON.parent.parent,
+        )
+        called_with = []
+
+        def fake_help(mode_key):
+            called_with.append(mode_key)
+            return f"help de {mode_key}"
+
+        monkeypatch.setattr("amanda_ia.agent.get_mode_help", fake_help)
+        prev = agent_mod._active_mode
+        try:
+            agent_mod._active_mode = "modo_warhammer"
+            result = process("/help")
+            assert called_with == ["modo_warhammer"]
+            assert "modo_warhammer" in result
+        finally:
+            agent_mod._active_mode = prev

@@ -17,6 +17,20 @@ poetry run aia
 
 > Ejecuta desde el directorio `amanda-IA` para que cargue `.aia/mcp.json`. Si fallan las tools MCP, prueba `/cache delete`.
 
+**Mensaje único (sin abrir la CLI):**
+```bash
+poetry run aia -m "¿Qué hora es?"
+```
+
+**Modo Warhammer desde la CLI:**
+```bash
+# Mensaje único en modo warhammer
+poetry run aia --modo warhammer -m "dame las estratagemas de los ultramarines"
+
+# CLI interactiva iniciando en modo warhammer
+poetry run aia --modo warhammer
+```
+
 ## Tests
 
 ```bash
@@ -37,6 +51,7 @@ poetry run pytest -m readme -v
 - **`.aia/mcp.json`** — Servidores MCP. Opcional `systemPrompt` por servidor para instrucciones dinámicas.
 - **`.aia/settings.json`** — Tools builtin, `classifierCache.ttlHours` (cache de clasificación, default 6)
 - **`.aia/cache/`** — Cache persistente: clasificación (se borra con `/cache delete`), wahapedia (config en mcp.json)
+- **`.aia/conversation_history`** — Archivo con historial de mensajes (flecha ↑ = mensaje anterior)
 
 **Comandos slash:**
 - `/cache delete` — Borra la cache de clasificación

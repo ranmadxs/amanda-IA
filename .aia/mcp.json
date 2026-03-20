@@ -8,7 +8,7 @@
         "MDB_MCP_CONNECTION_STRING": "${MONGODB_URI}"
       },
       "keywords": ["mongodb", "mongo", "base de datos", "colección", "documento", "query", "insertar", "buscar"],
-      "systemPrompt": "MongoDB: conexión preconfigurada. NO pases host, port, username ni password. list-databases sin parámetros. list-collections requiere solo database. NUNCA inventes datos."
+      "systemPrompt": "MongoDB: conexión preconfigurada. NO pases host, port, username ni password. Para listar bases de datos: USA list_databases (no list_mcp_databases). NUNCA pases parámetros: ni cluster, ni cluster_name, ni format. Siempre arguments vacío {}. list-collections requiere solo database. NUNCA inventes datos."
     },
     {
       "name": "temperatura",
@@ -19,7 +19,8 @@
     {
       "name": "wahapedia",
       "url": "http://localhost:8002/mcp",
-      "keywords": ["warhammer", "40k", "wahapedia", "estadísticas", "unidad", "rhino", "space marine", "facción"],
+      "modo": "modo_warhammer",
+      "systemPrompt": "Wahapedia está en inglés. TRADUCE query y faction al inglés. Unidades: get_unit_stats/search_wahapedia. Estratagemas: get_stratagems(faction). Ej: 'estratagemas adeptus custodes' -> get_stratagems('adeptus-custodes'). Facciones: space-marines, adeptus-custodes, adepta-sororitas.",
       "cache": {
         "enabled": true,
         "dir": ".aia/cache/wahapedia",
@@ -27,10 +28,10 @@
       }
     },
     {
-      "name": "tinaja",
+      "name": "monitor",
       "url": "http://localhost:8003/mcp",
-      "keywords": ["tinaja", "estanque", "acumulador", "nivel", "agua", "sensor", "litros", "capacidad", "disponibles", "porcentaje", "ocupada", "ocupado", "lectura", "tiempo real", "cuántos litros", "qué porcentaje"],
-      "systemPrompt": "Acumulador/estanque: Cuando pregunten litros, porcentaje o nivel de agua, EJECUTA get_lectura_actual() INMEDIATAMENTE (sin parámetros). Si no hay datos, usa calculate_tinaja_level(50). Responde SIEMPRE con el resultado de la tool. NUNCA digas 'no puedo'."
+      "modo": "modo_monitor",
+      "systemPrompt": "Acumulador/estanque: Para litros, porcentaje o nivel: get_lectura_actual(). Para velocidad de disminución del agua: get_velocidad_disminucion_agua() (usa historial MongoDB). Si no hay datos de lectura, usa calculate_tinaja_level(50). Responde SIEMPRE con el resultado. NUNCA digas 'no puedo'."
     },
     {
       "name": "filesystem",

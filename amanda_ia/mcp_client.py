@@ -155,6 +155,21 @@ def _get_tool_to_server_map(server_names: list[str] | None = None) -> dict[str, 
     return _fetch_server_tools(server_names)[0]
 
 
+# Tools que no aceptan parámetros; el modelo a veces inventa cluster, etc.
+_TOOLS_NO_ARGS = frozenset({"list_databases", "list-databases"})
+_EMPTY_PARAMS = {"type": "object", "properties": {}, "additionalProperties": False}
+
+
+def _sanitize_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Para list_databases: forzar parameters vacío para que el modelo no invente cluster, etc."""
+    fn = schema.get("function", {})
+    if fn.get("name") in _TOOLS_NO_ARGS:
+        schema = dict(schema)
+        schema["function"] = dict(fn)
+        schema["function"]["parameters"] = _EMPTY_PARAMS
+    return schema
+
+
 def get_mcp_tool_schemas(server_names: list[str] | None = None) -> list[dict[str, Any]]:
     """
     Schemas de tools MCP en formato Ollama.
@@ -163,6 +178,7 @@ def get_mcp_tool_schemas(server_names: list[str] | None = None) -> list[dict[str
     if server_names is not None and len(server_names) == 0:
         return []
     tool_map, schemas = _fetch_server_tools(server_names)
+    schemas = [_sanitize_schema(s) for s in schemas]
     if not server_names:
         return schemas
     return [
@@ -206,6 +222,13 @@ def get_mcp_server_info() -> str | None:
 def get_mcp_tools() -> list[str]:
     """Lista de tools disponibles en todos los servidores MCP (HTTP + stdio)."""
     return list(_get_tool_to_server_map().keys())
+
+
+def get_server_name_for_tool(tool_name: str) -> str | None:
+    """Nombre del servidor MCP que tiene esta tool (ej: 'wahapedia', 'mongodb')."""
+    tool_map = _get_tool_to_server_map()
+    server = tool_map.get(tool_name)
+    return server.get("name") if server else None
 
 
 def invalidate_mcp_cache() -> None:

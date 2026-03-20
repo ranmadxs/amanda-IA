@@ -31,7 +31,7 @@
       "name": "monitor",
       "url": "http://localhost:8003/mcp",
       "modo": "modo_monitor",
-      "systemPrompt": "Acumulador/estanque: Para litros, porcentaje o nivel: get_lectura_actual(). Para velocidad de disminución del agua: get_velocidad_disminucion_agua() (usa historial MongoDB). Si no hay datos de lectura, usa calculate_tinaja_level(50). Responde SIEMPRE con el resultado. NUNCA digas 'no puedo'."
+      "systemPrompt": "Acumulador/estanque: Para litros, porcentaje o nivel: get_lectura_actual(). Para velocidad de disminución: get_velocidad_disminucion_agua(). Para MONITOR EN TIEMPO REAL (cuando pidan monitorear, ver en vivo, tiempo real, watch): start_live_monitor(). Para detener el live: stop_live_monitor(). Si no hay datos, usa calculate_tinaja_level(50). NUNCA digas 'no puedo'."
     },
     {
       "name": "filesystem",

@@ -4,11 +4,12 @@ import asyncio
 import json
 import re
 import os
+import time
 from pathlib import Path
 import tomllib
 
 from importlib.resources import files
-from ollama import chat as ollama_chat
+from ollama import chat as ollama_chat, generate as ollama_generate
 from prompt_toolkit import Application
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.buffer import Buffer
@@ -71,6 +72,7 @@ from amanda_ia.config import _project_root
 from amanda_ia.mcp_client import get_mcp_server_info, invalidate_mcp_cache, get_server_name_for_tool
 from amanda_ia.classifier import classify_prompt
 from amanda_ia.classifier_cache import get as cache_get, set_ as cache_set, delete_all as cache_delete_all
+from amanda_ia import live_monitor
 
 console = Console()
 
@@ -78,9 +80,8 @@ console = Console()
 OLLAMA_MODEL = os.environ.get("AIA_OLLAMA_MODEL", "llama3.1:8b")
 
 SYSTEM_PROMPT_BASE = """Eres un asistente útil. Tienes acceso a herramientas (tools) configuradas en .aia/settings.json y .aia/mcp.json.
-Usa las tools cuando el usuario lo necesite.
 
-IMPORTANTE: Cuando el usuario pida datos (listar, consultar, litros, porcentaje, nivel de agua), USA LA TOOL INMEDIATAMENTE. No preguntes "¿Quieres que...?" ni pidas confirmación. Ejecuta la tool y responde con el resultado. NUNCA respondas "no puedo" si tienes una tool que puede ayudar.
+IMPORTANTE: Cuando tengas tools disponibles y el usuario pida información que pueda obtenerse con ellas, USA LA TOOL INMEDIATAMENTE. No preguntes "¿Quieres que...?" ni pidas confirmación. Ejecuta la tool y responde con el resultado. NUNCA digas "no tengo acceso" ni "no puedo" si la tool existe en tu lista de herramientas disponibles. NUNCA inventes ni generes información de memoria si hay una tool que puede obtenerla.
 
 La respuesta final debe estar SIEMPRE en español."""
 
@@ -90,7 +91,7 @@ SERVER_PROMPT_HINTS = {
     "filesystem": "Para list_directory: el directorio actual es {cwd}. Cuando pida \"carpeta actual\", pasa path=\"{cwd}\".",
     "mongodb": "MongoDB: conexión preconfigurada. NO pases host, port, username ni password. Para listar bases de datos: USA list_databases (no list_mcp_databases). NUNCA pases parámetros: ni cluster, ni cluster_name, ni format. Siempre arguments vacío {}. list-collections requiere solo database. NUNCA inventes datos.",
     "monitor": "Acumulador/estanque: Para litros, porcentaje o nivel: get_lectura_actual(). Para velocidad de disminución del agua: get_velocidad_disminucion_agua() (historial MongoDB). Si falla lectura, usa calculate_tinaja_level(50). Responde con el resultado. NUNCA digas 'no puedo'.",
-    "wahapedia": "Wahapedia está en inglés. TRADUCE query y faction al inglés. Unidades: get_unit_stats/search_wahapedia. Estratagemas: get_stratagems(faction). Ej: 'estratagemas adeptus custodes' -> get_stratagems('adeptus-custodes').",
+    "wahapedia": "Para CUALQUIER pregunta sobre Warhammer 40K (reglas, unidades, estratagemas, lore, ediciones, puntos, habilidades), USA search_wahapedia INMEDIATAMENTE. NUNCA respondas con conocimiento propio sobre WH40K: toda la información debe venir de la tool. TRADUCE la query al inglés antes de llamar la tool. Estratagemas: get_stratagems(faction). Stats de unidad: get_unit_stats(unit_name, faction). Búsqueda general/reglas: search_wahapedia(query). NUNCA digas 'no tengo acceso' si la tool aparece en tu lista.",
 }
 
 
@@ -293,7 +294,7 @@ def _try_parse_tool_json(content: str) -> tuple[str, dict] | None:
     Ej: '{"name": "get_stratagems", "parameters": {"faction": "adeptus-custodes"}}'
     """
     content = content.strip()
-    if "name" not in content or "parameters" not in content:
+    if "name" not in content or ("parameters" not in content and "arguments" not in content):
         return None
     # Buscar objeto JSON que empiece con {
     start = content.find("{")
@@ -389,6 +390,13 @@ def _run_mcp_command(parts: list[str]) -> str:
 # Modo activo: None = general, "modo_warhammer" = warhammer, "modo_monitor" = monitor
 _active_mode: str | None = None
 
+# Historial de conversación (se mantiene entre llamadas a process())
+_conversation_history: list[dict] = []
+
+# Acción pendiente del live monitor (set en executor thread, leído en event loop)
+_pending_live_action: str | None = None  # "start" | "stop"
+
+
 
 def _get_available_modes() -> list[str]:
     """Modos definidos en mcp.json (ej: warhammer, monitor)."""
@@ -404,7 +412,10 @@ def _get_available_modes() -> list[str]:
 def _get_all_slash_commands() -> list[str]:
     """Todos los comandos slash disponibles (para filtrar por aproximación)."""
     modes = _get_available_modes()
-    return ["/mcp", "/cache delete"] + [f"/modo {m}" for m in modes]
+    cmds = ["/mcp list", "/cache delete", "/flush all", "/flush ollama", "/flush cache", "/flush history"]
+    if _active_mode == "modo_monitor":
+        cmds.insert(0, "/watch")
+    return cmds + [f"/modo {m}" for m in modes]
 
 
 def _get_slash_completions(prefix: str) -> list[str]:
@@ -457,9 +468,88 @@ def _keyword_fallback(message: str, servers: list) -> list[str]:
     return [name for _, name in best]
 
 
+_MAX_TURNS = 10
+
+
+def _count_turns(history: list[dict]) -> int:
+    """Cuenta el número de turnos (mensajes de usuario) en el historial."""
+    return sum(1 for m in history if m.get("role") == "user")
+
+
+def _compress_history(history: list[dict], phase: dict[str, str] | None) -> list[dict]:
+    """
+    Cuando el historial supera _MAX_TURNS, resume los turnos más antiguos con el modelo
+    y retorna un historial comprimido. Muestra 'Resumiendo Conversación' en el spinner
+    con un mínimo de 1 segundo en pantalla.
+    """
+    # Agrupar mensajes en turnos (cada turno empieza con role=user)
+    turns: list[list[dict]] = []
+    current: list[dict] = []
+    for msg in history:
+        if msg.get("role") == "user" and current:
+            turns.append(current)
+            current = [msg]
+        else:
+            current.append(msg)
+    if current:
+        turns.append(current)
+
+    if len(turns) <= _MAX_TURNS:
+        return history
+
+    old_turns = turns[:-_MAX_TURNS]
+    recent_turns = turns[-_MAX_TURNS:]
+    old_messages = [m for turn in old_turns for m in turn]
+    recent_messages = [m for turn in recent_turns for m in turn]
+
+    # Señalizar estado en GUI y registrar tiempo de inicio
+    if phase is not None:
+        phase["value"] = "Resumiendo Conversación"
+    start = time.monotonic()
+
+    try:
+        lines = []
+        for m in old_messages:
+            role = m.get("role", "")
+            content = m.get("content", "") or ""
+            if role == "user" and content:
+                lines.append(f"Usuario: {content}")
+            elif role == "assistant" and content:
+                lines.append(f"Asistente: {content}")
+            elif role == "tool" and content:
+                snippet = content[:200] + "..." if len(content) > 200 else content
+                lines.append(f"[Herramienta]: {snippet}")
+
+        r = ollama_chat(
+            model=OLLAMA_MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        "Resume brevemente (máximo 4 oraciones en español) esta conversación previa, "
+                        "destacando los datos importantes mencionados:\n\n" + "\n".join(lines)
+                    ),
+                }
+            ],
+        )
+        summary = (getattr(r.message, "content", None) or "").strip() or "Conversación previa resumida."
+    except Exception:
+        summary = "Conversación previa resumida."
+
+    # Garantizar mínimo 1 segundo visible en el GUI
+    elapsed = time.monotonic() - start
+    if elapsed < 1.0:
+        time.sleep(1.0 - elapsed)
+
+    return [
+        {"role": "user", "content": f"[Resumen de conversación anterior]: {summary}"},
+        {"role": "assistant", "content": "Entendido, tengo en cuenta el contexto anterior."},
+    ] + recent_messages
+
+
 def process(message: str, phase: dict[str, str] | None = None) -> str:
     """Envía el mensaje a Ollama con tools y devuelve la respuesta."""
-    global _active_mode
+    global _active_mode, _conversation_history, _pending_live_action
     msg_stripped = message.strip()
     msg_lower = msg_stripped.lower()
 
@@ -470,6 +560,7 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
         servers = get_mcp_servers()
         if any(s.get("modo") == mode_key for s in servers):
             _active_mode = mode_key
+            _conversation_history.clear()
             label = mode_name.replace("_", " ").title()
             return f"[dim]Modo {label} activado. Escribe 'exit' para salir.[/]"
         return f"[dim]Modo '{mode_name}' no existe. Modos: {', '.join(_get_available_modes())}[/]"
@@ -477,12 +568,56 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
     if msg_lower == "/cache delete":
         cache_delete_all()
         invalidate_mcp_cache()
-        return "[dim]Cache borrada (clasificador + MCP tools).[/]"
+        _conversation_history.clear()
+        return "[dim]Cache borrada (clasificador + MCP tools + historial de conversación).[/]"
+
+    if msg_lower.startswith("/flush"):
+        subcmd = msg_lower[len("/flush"):].strip()
+
+        def _flush_ollama() -> str:
+            from ollama import ps as ollama_ps
+            loaded = ollama_ps().models or []
+            unloaded = []
+            for m in loaded:
+                name = m.model or m.name
+                if name:
+                    ollama_generate(model=name, prompt="", keep_alive=0)
+                    unloaded.append(name)
+            if not unloaded:
+                ollama_generate(model=OLLAMA_MODEL, prompt="", keep_alive=0)
+                unloaded = [OLLAMA_MODEL]
+            return f"Ollama descargado ({', '.join(unloaded)})."
+
+        def _flush_cache() -> str:
+            cache_delete_all()
+            invalidate_mcp_cache()
+            return "Cache borrada (clasificador + MCP tools)."
+
+        def _flush_history() -> str:
+            _conversation_history.clear()
+            return "Historial de conversación borrado."
+
+        if subcmd == "ollama":
+            try:
+                return f"[dim]{_flush_ollama()}[/]"
+            except Exception as e:
+                return f"[dim red]Error al descargar Ollama: {e}[/]"
+        elif subcmd == "cache":
+            return f"[dim]{_flush_cache()}[/]"
+        elif subcmd == "history":
+            return f"[dim]{_flush_history()}[/]"
+        elif subcmd == "all":
+            msgs = [_flush_cache(), _flush_history()]
+            try:
+                msgs.append(_flush_ollama())
+            except Exception as e:
+                msgs.append(f"Error al descargar Ollama: {e}")
+            return "[dim]" + " ".join(msgs) + "[/]"
+        else:
+            return "[dim]Uso: /flush all | /flush ollama | /flush cache | /flush history[/]"
 
     if msg_lower.startswith("/mcp"):
         parts = msg_stripped.split()
-        if len(parts) == 1:
-            parts = ["/mcp", "list"]
         return _run_mcp_command(parts)
 
     # Bypass: consultas de hora/fecha solo necesitan get_time (builtin), no MCP
@@ -538,10 +673,15 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
     mcp_tools = [t for t in tools if isinstance(t, dict) and t.get("type") == "function"]
     mcp_load_failed = selected and len(selected) > 0 and len(mcp_tools) == 0
 
+    # Comprimir historial si supera el límite de turnos
+    if _count_turns(_conversation_history) >= _MAX_TURNS:
+        _conversation_history = _compress_history(_conversation_history, phase)
+
     cwd = os.getcwd()
     system_prompt = _build_system_prompt(selected, tools, cwd)
     messages = [
         {"role": "system", "content": system_prompt},
+    ] + _conversation_history + [
         {"role": "user", "content": message},
     ]
 
@@ -577,6 +717,10 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                     result = execute_tool(name, args)
                     last_tool_result = result
                     messages.append({"role": "tool", "tool_name": name, "content": result})
+                    if name == "start_live_monitor":
+                        _pending_live_action = "start"
+                    elif name == "stop_live_monitor":
+                        _pending_live_action = "stop"
                 continue
 
             content = (getattr(msg, "content", None) or "").strip()
@@ -595,6 +739,10 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                     params = _translate_wahapedia_args(params)
                 result = execute_tool(name, params)
                 last_tool_result = result
+                if name == "start_live_monitor":
+                    _pending_live_action = "start"
+                elif name == "stop_live_monitor":
+                    _pending_live_action = "stop"
                 messages.append({"role": "assistant", "content": content})
                 lang_hint = " (spanglish para WH40K)" if selected and "wahapedia" in selected else ""
                 messages.append({"role": "user", "content": f"Resultado de {name}: {result}\n\nResponde la pregunta del usuario con esta información. Responde en español{lang_hint}."})
@@ -603,9 +751,12 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
             if content:
                 if mcp_load_failed:
                     content += "\n\n[dim]Nota: No se cargaron las herramientas MCP. ¿Están los servidores corriendo? (ej: cd aia-mcp && poetry run mcp all --http). Prueba /cache delete si el clasificador falló.[/]"
+                # Guardar turno completo en historial (sin system prompt)
+                _conversation_history = messages[1:] + [{"role": "assistant", "content": content}]
                 return content
             # Fallback: si el modelo no formateó la respuesta, usar el resultado de la tool
             if last_tool_result:
+                _conversation_history = messages[1:] + [{"role": "assistant", "content": last_tool_result}]
                 return last_tool_result
             return "[dim]Sin respuesta.[/]"
 
@@ -637,21 +788,23 @@ class _QuestionHighlightLexer(Lexer):
                 line = lines[lineno]
                 if line.lstrip().startswith("›"):
                     width = _get_output_width()
-                    padded = line + " " * max(0, width - len(line))
+                    padded = line + " " * max(0, width - len(line) - 1)
                     return [("bg:#2d2d2d fg:white", padded)]
-                if "Pensando" in line or "Clasificando" in line or "mcp_exe" in line:
-                    # Efecto luz: letra resaltada en gris claro, resto en gris oscuro
-                    parts = []
+                # Línea de spinner: empieza con carácter braille
+                if line and line[0] in "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏":
+                    bright, dim = _get_banner_colors()
+                    # Ícono braille: color banner completo + bold
+                    parts = [("bold fg:" + bright, line[0])]
                     highlight_next = False
-                    for c in line:
+                    for c in line[1:]:
                         if c == ZW:
                             highlight_next = True
                         elif highlight_next:
-                            parts.append(("fg:#999999", c))
+                            parts.append(("bold fg:" + bright, c))
                             highlight_next = False
                         else:
-                            parts.append(("fg:#555555", c))
-                    return parts if parts else [("fg:#555555", line)]
+                            parts.append(("fg:" + dim, c))
+                    return parts if parts else [("fg:" + dim, line)]
                 return [("", line)]
             except IndexError:
                 return []
@@ -664,16 +817,20 @@ SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇",
 ZW = "\u200b"  # Zero-width space para marcar la letra resaltada
 
 
-def _scroll_output(output_buffer: Buffer, force_bottom: bool = False) -> None:
-    """
-    Si el contenido es corto, muestra desde arriba (sin espacio vacío).
-    Si es largo, scroll al final para ver lo último.
-    """
-    lines = output_buffer.text.count("\n") + 1
-    if force_bottom or lines > 25:
-        output_buffer.cursor_position = len(output_buffer.text)
+def _get_banner_colors() -> tuple[str, str]:
+    """Retorna (color_brillante, color_tenue) del banner según el modo activo."""
+    if _active_mode == "modo_warhammer":
+        return "#9b59b6", "#4d2b5a"
+    elif _active_mode == "modo_monitor":
+        return "#3498db", "#1a4d6e"
     else:
-        output_buffer.cursor_position = 0
+        return "#ff8700", "#804400"
+
+
+def _scroll_output(output_buffer: Buffer) -> None:
+    """Scroll al final para ver lo último. Si el contenido cabe en pantalla,
+    prompt_toolkit muestra desde el top automáticamente."""
+    output_buffer.cursor_position = len(output_buffer.text)
 
 
 def run():
@@ -703,12 +860,13 @@ def run():
         right_margins=[ScrollbarMargin(display_arrows=True)],
     )
 
-    def append_output(text: str, scroll_to_bottom: bool = False) -> None:
+    def append_output(text: str) -> None:
+        output_buffer.cursor_position = len(output_buffer.text)
         output_buffer.insert_text(text)
-        _scroll_output(output_buffer, force_bottom=scroll_to_bottom)
+        _scroll_output(output_buffer)
 
     def on_accept(buff: Buffer) -> bool:
-        global _active_mode
+        global _active_mode, _conversation_history
         text = buff.text.strip()
         buff.reset()
         app = get_app()
@@ -718,6 +876,7 @@ def run():
         if text.lower() in ("exit", "quit"):
             if _active_mode:
                 _active_mode = None
+                _conversation_history.clear()
                 append_output("[dim]Modo desactivado.[/]\n\n")
                 app.invalidate()
                 return True
@@ -727,13 +886,39 @@ def run():
         if text and text != "?":
             input_history.append_string(text)
         if text == "?":
-            append_output("exit | quit - salir | /modo warhammer - modo Warhammer 40K | /cache delete - borrar cache | /mcp list - listar MCP | /mcp <name> disabled|enabled\n")
+            append_output("exit | quit - salir | /modo warhammer | /cache delete | /flush all|ollama|cache|history | /mcp list | /mcp <name> disabled|enabled\n")
             app.invalidate()
             return True
 
+        # /watch: monitor en vivo por MQTT (solo en modo_monitor)
+        if text.lower() == "/watch":
+            if _active_mode != "modo_monitor":
+                append_output("El monitor en vivo solo esta disponible en modo monitor (/modo monitor).\n\n")
+            elif live_monitor.is_active():
+                live_monitor.stop()
+                append_output("Monitor en vivo detenido.\n\n")
+            else:
+                try:
+                    _loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    _loop = asyncio.get_event_loop()
+                err = live_monitor.start(append_output, app.invalidate, _loop)
+                if err:
+                    append_output(f"{err}\n\n")
+                else:
+                    topic = os.environ.get("MQTT_TOPIC_OUT", "MQTT")
+                    append_output(f"Monitor en vivo  {topic}\nEscribe /watch para detener.\n\n")
+            app.invalidate()
+            return True
+
+        # Si el live monitor está activo y el usuario envía cualquier otro comando, detenerlo
+        if live_monitor.is_active():
+            live_monitor.stop()
+            append_output("Monitor en vivo detenido.\n")
+
         phase = {"value": "Clasificando"}
         append_output("› " + text + "\n")
-        append_output(SPINNER_FRAMES[0] + " Clasificando\n")
+        append_output(SPINNER_FRAMES[0] + " Clasificando...\n")
         app.invalidate()
 
         spinner_task = None
@@ -752,8 +937,8 @@ def run():
                         label = get_spinner_label()
                         idx = i % len(label) if label else 0
                         animated = label[:idx] + ZW + label[idx:] if label else ""
-                        output_buffer.text = lines[0] + "\n" + frame + " " + animated + "\n"
-                        _scroll_output(output_buffer, force_bottom=True)
+                        output_buffer.text = lines[0] + "\n" + frame + " " + animated + "...\n"
+                        _scroll_output(output_buffer)
                         app.invalidate()
                     i += 1
                     await asyncio.sleep(0.1)  # 100ms como Ollama
@@ -761,12 +946,20 @@ def run():
                 pass
 
         def update_ui(result: str):
+            global _pending_live_action
             nonlocal spinner_task
             if spinner_task and not spinner_task.done():
                 spinner_task.cancel()
             lines = output_buffer.text.rsplit("\n", 2)
             output_buffer.text = (lines[0] if lines else "") + "\n\n"
-            append_output(result + "\n\n", scroll_to_bottom=len(result) > 500)
+            append_output(result + "\n\n")
+            # Disparar acción de live monitor si el modelo llamó start/stop_live_monitor
+            action = _pending_live_action
+            _pending_live_action = None
+            if action == "start" and not live_monitor.is_active():
+                live_monitor.start(append_output, app.invalidate, loop)
+            elif action == "stop" and live_monitor.is_active():
+                live_monitor.stop()
             app.layout.focus(input_buffer)
             app.invalidate()
 
@@ -822,8 +1015,14 @@ def run():
         if event.app.layout.current_buffer == output_buffer:
             event.app.layout.focus(input_buffer)
             return
+        if live_monitor.is_active():
+            live_monitor.stop()
+            append_output("Monitor en vivo detenido.\n\n")
+            event.app.invalidate()
+            return
         if _active_mode:
             _active_mode = None
+            _conversation_history.clear()
             append_output("[dim]Modo desactivado.[/]\n\n")
             event.app.invalidate()
 
@@ -846,17 +1045,37 @@ def run():
         t = (input_buffer.text or "").strip()
         scroll_hint = " | Shift+Tab para scroll"
         if t.startswith("/"):
-            # Filtrar por aproximación desde /
             completions = _get_slash_completions(t)
-            base = " | ".join(completions) if completions else "/mcp | /cache delete | /modo warhammer | /modo monitor"
-            return base + scroll_hint
+            if not completions:
+                completions = ["/mcp list", "/cache delete", "/flush all", "/flush ollama", "/flush cache", "/flush history"] + [f"/modo {m}" for m in _get_available_modes()]
+            try:
+                width = get_app().output.get_size().columns
+            except Exception:
+                width = 80
+            sep = " | "
+            line1: list[str] = []
+            line2: list[str] = []
+            used = 0
+            for i, c in enumerate(completions):
+                chunk = (sep if i > 0 else "") + c
+                if not line1 or used + len(chunk) <= width - len(scroll_hint):
+                    line1.append(c)
+                    used += len(chunk)
+                else:
+                    line2.append(c)
+            text1 = sep.join(line1)
+            if line2:
+                return text1 + "\n" + sep.join(line2) + scroll_hint
+            return text1 + scroll_hint
+        if live_monitor.is_active():
+            return [("bold fg:#e74c3c", "● EN VIVO"), ("#888888", " | /watch para detener | Escape para detener")]
         if _active_mode:
             mode_label = f"Modo {_active_mode.replace('modo_', '')} activo"
             rest = f" | exit o Escape para salir{scroll_hint}"
             if _active_mode == "modo_warhammer":
                 return [("bold fg:#9b59b6", mode_label), ("#888888", rest)]
             if _active_mode == "modo_monitor":
-                return [("bold fg:#3498db", mode_label), ("#888888", rest)]
+                return [("bold fg:#3498db", mode_label), ("#888888", rest + " | /watch para monitor en vivo")]
             return mode_label + rest
         return [("bold fg:#ff8700", "? for shortcuts"), ("#888888", " | Shift+Tab o click para scroll | Tab para escribir")]
     toolbar = Window(

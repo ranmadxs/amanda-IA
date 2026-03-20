@@ -98,32 +98,59 @@ class TestMcpCommand:
 
 
 class TestModeCommand:
-    """Tests de /modo y activación de modo visual."""
+    """Tests de /mod y activación de modo visual."""
+
+    def _write_mods(self, tmp_path, modes: list):
+        (tmp_path / ".aia").mkdir(exist_ok=True)
+        (tmp_path / ".aia" / "mods.json").write_text(
+            json.dumps({"mods": modes}, indent=2), encoding="utf-8"
+        )
 
     def test_modo_lists_available_modes(self, tmp_path, monkeypatch):
         monkeypatch.setattr("amanda_ia.config._project_root", lambda: tmp_path)
-        (tmp_path / ".aia").mkdir(exist_ok=True)
-        (tmp_path / ".aia" / "mcp.json").write_text(
-            json.dumps(
-                {
-                    "servers": [
-                        {"name": "wahapedia", "url": "http://localhost:8002/mcp", "modo": "modo_warhammer"},
-                        {"name": "monitor", "url": "http://localhost:8003/mcp", "modo": "modo_monitor"},
-                    ]
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+        self._write_mods(tmp_path, [
+            {"name": "warhammer", "key": "modo_warhammer", "color": "#9b59b6", "enabled": True},
+            {"name": "monitor", "key": "modo_monitor", "color": "#3498db", "enabled": True},
+        ])
+        (tmp_path / ".aia" / "mcp.json").write_text('{"servers": []}', encoding="utf-8")
 
-        result = process("/modo")
+        result = process("/mod")
         assert "Modos disponibles" in result
         assert "warhammer" in result
         assert "monitor" in result
 
+    def test_mod_list_shows_disabled_modes(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("amanda_ia.config._project_root", lambda: tmp_path)
+        self._write_mods(tmp_path, [
+            {"name": "warhammer", "key": "modo_warhammer", "color": "#9b59b6", "enabled": False},
+        ])
+        (tmp_path / ".aia" / "mcp.json").write_text('{"servers": []}', encoding="utf-8")
+
+        result = process("/mod list")
+        assert "warhammer" in result
+        assert "disabled" in result
+
+    def test_mod_enable_disable(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("amanda_ia.config._project_root", lambda: tmp_path)
+        self._write_mods(tmp_path, [
+            {"name": "warhammer", "key": "modo_warhammer", "color": "#9b59b6", "enabled": True},
+        ])
+        (tmp_path / ".aia" / "mcp.json").write_text('{"servers": []}', encoding="utf-8")
+        monkeypatch.setattr("amanda_ia.mcp_client.invalidate_mcp_cache", lambda: None)
+
+        result = process("/mod warhammer disabled")
+        assert "deshabilitado" in result
+        data = json.loads((tmp_path / ".aia" / "mods.json").read_text(encoding="utf-8"))
+        assert data["mods"][0]["enabled"] is False
+
+        result = process("/mod warhammer enabled")
+        assert "habilitado" in result
+
     def test_modo_activates_even_if_mode_server_disabled(self, tmp_path, monkeypatch):
         monkeypatch.setattr("amanda_ia.config._project_root", lambda: tmp_path)
-        (tmp_path / ".aia").mkdir(exist_ok=True)
+        self._write_mods(tmp_path, [
+            {"name": "warhammer", "key": "modo_warhammer", "color": "#9b59b6", "enabled": True},
+        ])
         (tmp_path / ".aia" / "mcp.json").write_text(
             json.dumps(
                 {
@@ -143,7 +170,7 @@ class TestModeCommand:
 
         prev = agent_mod._active_mode
         try:
-            result = process("/modo warhammer")
+            result = process("/mod warhammer")
             assert "activado" in result
             assert agent_mod._active_mode == "modo_warhammer"
         finally:
@@ -238,55 +265,61 @@ class TestGetTimeIntegration:
 
 
 class TestModesInProject:
-    """Garantiza que los modos warhammer y monitor existen en el mcp.json real del proyecto."""
+    """Garantiza que los modos warhammer y monitor existen en los archivos reales del proyecto."""
 
-    MCP_JSON = Path(__file__).parent.parent / ".aia" / "mcp.json"
-    REQUIRED_MODES = {"modo_warhammer", "modo_monitor"}
+    PROJECT_ROOT = Path(__file__).parent.parent
+    MCP_JSON = PROJECT_ROOT / ".aia" / "mcp.json"
+    MODS_JSON = PROJECT_ROOT / ".aia" / "mods.json"
+
+    def _load_mods(self):
+        assert self.MODS_JSON.exists(), f"No se encontró {self.MODS_JSON}"
+        return json.loads(self.MODS_JSON.read_text(encoding="utf-8")).get("mods", [])
 
     def _load_servers(self):
         assert self.MCP_JSON.exists(), f"No se encontró {self.MCP_JSON}"
-        data = json.loads(self.MCP_JSON.read_text(encoding="utf-8"))
-        return data.get("servers", [])
+        return json.loads(self.MCP_JSON.read_text(encoding="utf-8")).get("servers", [])
+
+    def test_mods_json_has_warhammer(self):
+        """Debe existir modo warhammer en .aia/mods.json."""
+        mods = self._load_mods()
+        keys = {m.get("key") for m in mods}
+        assert "modo_warhammer" in keys, "No hay modo_warhammer en .aia/mods.json"
+
+    def test_mods_json_has_monitor(self):
+        """Debe existir modo monitor en .aia/mods.json."""
+        mods = self._load_mods()
+        keys = {m.get("key") for m in mods}
+        assert "modo_monitor" in keys, "No hay modo_monitor en .aia/mods.json"
 
     def test_mcp_json_has_warhammer_mode(self):
         """Debe existir al menos un server con modo_warhammer en .aia/mcp.json."""
         servers = self._load_servers()
         modos = {s.get("modo") for s in servers}
-        assert "modo_warhammer" in modos, (
-            "No hay ningún server con modo_warhammer en .aia/mcp.json"
-        )
+        assert "modo_warhammer" in modos, "No hay ningún server con modo_warhammer en .aia/mcp.json"
 
     def test_mcp_json_has_monitor_mode(self):
         """Debe existir al menos un server con modo_monitor en .aia/mcp.json."""
         servers = self._load_servers()
         modos = {s.get("modo") for s in servers}
-        assert "modo_monitor" in modos, (
-            "No hay ningún server con modo_monitor en .aia/mcp.json"
-        )
+        assert "modo_monitor" in modos, "No hay ningún server con modo_monitor en .aia/mcp.json"
 
-    def test_modo_warhammer_activates(self, monkeypatch):
-        """'/modo warhammer' activa modo_warhammer usando el mcp.json real."""
-        monkeypatch.setattr(
-            "amanda_ia.config._project_root",
-            lambda: self.MCP_JSON.parent.parent,
-        )
+    def test_mod_warhammer_activates(self, monkeypatch):
+        """'/mod warhammer' activa modo_warhammer usando los archivos reales."""
+        monkeypatch.setattr("amanda_ia.config._project_root", lambda: self.PROJECT_ROOT)
         prev = agent_mod._active_mode
         try:
-            result = process("/modo warhammer")
+            result = process("/mod warhammer")
             assert "activado" in result, f"Esperaba 'activado', obtuvo: {result}"
             assert agent_mod._active_mode == "modo_warhammer"
         finally:
             agent_mod._active_mode = prev
 
-    def test_modo_monitor_activates(self, monkeypatch):
-        """'/modo monitor' activa modo_monitor usando el mcp.json real."""
-        monkeypatch.setattr(
-            "amanda_ia.config._project_root",
-            lambda: self.MCP_JSON.parent.parent,
-        )
+    def test_mod_monitor_activates(self, monkeypatch):
+        """'/mod monitor' activa modo_monitor usando los archivos reales."""
+        monkeypatch.setattr("amanda_ia.config._project_root", lambda: self.PROJECT_ROOT)
         prev = agent_mod._active_mode
         try:
-            result = process("/modo monitor")
+            result = process("/mod monitor")
             assert "activado" in result, f"Esperaba 'activado', obtuvo: {result}"
             assert agent_mod._active_mode == "modo_monitor"
         finally:
@@ -294,10 +327,7 @@ class TestModesInProject:
 
     def test_watch_only_visible_in_monitor_mode(self, monkeypatch):
         """/watch aparece en completions solo cuando modo_monitor está activo."""
-        monkeypatch.setattr(
-            "amanda_ia.config._project_root",
-            lambda: self.MCP_JSON.parent.parent,
-        )
+        monkeypatch.setattr("amanda_ia.config._project_root", lambda: self.PROJECT_ROOT)
         prev = agent_mod._active_mode
         try:
             agent_mod._active_mode = None
@@ -312,10 +342,7 @@ class TestModesInProject:
 
     def test_help_only_visible_when_mode_active(self, monkeypatch):
         """/help aparece en completions solo cuando hay un modo activo."""
-        monkeypatch.setattr(
-            "amanda_ia.config._project_root",
-            lambda: self.MCP_JSON.parent.parent,
-        )
+        monkeypatch.setattr("amanda_ia.config._project_root", lambda: self.PROJECT_ROOT)
         prev = agent_mod._active_mode
         try:
             agent_mod._active_mode = None
@@ -330,10 +357,7 @@ class TestModesInProject:
 
     def test_help_without_mode_returns_hint(self, monkeypatch):
         """/help sin modo activo responde con mensaje orientativo."""
-        monkeypatch.setattr(
-            "amanda_ia.config._project_root",
-            lambda: self.MCP_JSON.parent.parent,
-        )
+        monkeypatch.setattr("amanda_ia.config._project_root", lambda: self.PROJECT_ROOT)
         prev = agent_mod._active_mode
         try:
             agent_mod._active_mode = None
@@ -344,10 +368,7 @@ class TestModesInProject:
 
     def test_help_calls_get_mode_help_when_mode_active(self, monkeypatch):
         """/help con modo activo llama get_mode_help con el modo correcto."""
-        monkeypatch.setattr(
-            "amanda_ia.config._project_root",
-            lambda: self.MCP_JSON.parent.parent,
-        )
+        monkeypatch.setattr("amanda_ia.config._project_root", lambda: self.PROJECT_ROOT)
         called_with = []
 
         def fake_help(mode_key):

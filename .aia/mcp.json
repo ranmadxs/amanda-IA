@@ -13,7 +13,7 @@
     {
       "name": "temperatura",
       "url": "http://localhost:8001/mcp",
-      "keywords": ["temperatura", "clima", "ciudad", "tiempo", "grados", "°C", "qué temperatura", "cómo está el clima"],
+      "keywords": ["temperatura", "clima", "ciudad", "tiempo", "grados", "°C", "qué temperatura", "cómo está el clima", "hace calor", "hace frío", "hace frio", "temperatura actual", "qué tiempo hace", "que tiempo hace", "pronóstico", "pronostico", "cuántos grados", "cuantos grados", "está lloviendo", "esta lloviendo"],
       "systemPrompt": "Temperatura/clima: USA get_temperature(city=\"nombre_ciudad\"). Ej: Santiago → city=\"Santiago\". Ejecuta YA. NUNCA digas 'no está disponible'."
     },
     {
@@ -44,8 +44,8 @@
         "/tmp"
       ],
       "enabled": true,
-      "keywords": ["archivo", "carpeta", "listar", "lista", "contenido", "leer", "escribir", "directorio", "buscar archivos", "crear"],
-      "systemPrompt": "Para list_directory: el directorio actual es {cwd}. Cuando pida \"carpeta actual\" o \"este directorio\", pasa path=\"{cwd}\"."
+      "keywords": ["archivo", "archivos", "carpeta", "listar", "lista", "contenido", "leer", "escribir", "directorio", "buscar archivos", "crear", "qué hay", "qué archivos", "que archivos", "muéstrame", "muestrame", "muestra los", "lee el", "lee la", "existe el", "hay un archivo", "hay archivos", "ver archivos", "ver carpeta", "esta carpeta", "este directorio", "aquí", "acá", "aca", "ruta", "fichero", "ficheros"],
+      "systemPrompt": "SIEMPRE usa rutas absolutas. El directorio de trabajo actual es {cwd}. Para 'carpeta actual', 'este directorio', 'aquí', 'acá' o cuando no se especifique ruta: USA EXACTAMENTE path=\"{cwd}\". NUNCA uses '.', './' ni rutas relativas. NUNCA inventes archivos."
     }
   ]
 }

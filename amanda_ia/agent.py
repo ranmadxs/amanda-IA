@@ -66,6 +66,7 @@ from rich.console import Console
 
 from amanda_ia.tools import get_tools, execute_tool
 from amanda_ia.config import get_mcp_display_names, get_mcp_servers, get_mcp_servers_raw, set_mcp_server_enabled
+from amanda_ia.config import get_mods_raw, get_mods, set_mod_enabled
 from amanda_ia.config import _project_root
 from amanda_ia.mcp_client import get_mcp_server_info, invalidate_mcp_cache, get_server_name_for_tool, get_mode_help
 from amanda_ia.classifier import classify_prompt
@@ -122,9 +123,10 @@ Responde siempre en español. Para saludos (hola, buenos días) responde breve y
     parts = [SYSTEM_PROMPT_BASE]
     if hints:
         parts.append("\n\n" + "\n\n".join(f"IMPORTANTE: {h}" for h in hints))
-    # Idioma final: español; spanglish solo para Warhammer 40K
-    if selected and "wahapedia" in selected:
-        parts.append("\n\nIMPORTANTE: Para Warhammer 40K usa spanglish: responde en español pero nombres de unidades, estratagemas y términos técnicos pueden quedar en inglés.")
+    # Extra del modo activo (ej: spanglish para Warhammer 40K)
+    mod = _get_mod_config()
+    if mod and mod.get("systemPromptExtra"):
+        parts.append(f"\n\nIMPORTANTE: {mod['systemPromptExtra']}")
     else:
         parts.append("\n\nIMPORTANTE: Responde siempre en español. La respuesta final debe estar en español.")
     return "\n".join(parts)
@@ -178,23 +180,20 @@ def _get_header_formatted_text():
         f"  {OLLAMA_MODEL} · {tools_label}",
         f"  {cwd}",
     ]
+    _banner_map = {
+        "banner_wh40k": wh40k_lines,
+        "banner_h2o": h2o_lines,
+    }
+    mod = _get_mod_config()
+    active_banner_lines = _banner_map.get(mod.get("banner", ""), icon_lines) if mod else icon_lines
+    active_color = mod.get("color", "#ff8700") if mod else "#ff8700"
     lines = []
     num_lines = 5
     for i in range(num_lines):
-        if _active_mode == "modo_warhammer":
-            combined_icon = wh40k_lines[i] if i < len(wh40k_lines) else ""
-        elif _active_mode == "modo_monitor":
-            combined_icon = h2o_lines[i] if i < len(h2o_lines) else ""
-        else:
-            combined_icon = icon_lines[i] if i < len(icon_lines) else ""
+        combined_icon = active_banner_lines[i] if i < len(active_banner_lines) else ""
         txt = texts[i] if i < len(texts) else ""
         if combined_icon:
-            if _active_mode == "modo_warhammer":
-                banner_style = "bold fg:#9b59b6"
-            elif _active_mode == "modo_monitor":
-                banner_style = "bold fg:#3498db"
-            else:
-                banner_style = "bold fg:#ff8700"
+            banner_style = f"bold fg:{active_color}"
             lines.append((banner_style, combined_icon))
         if txt:
             lines.append(("fg:ansigray", " " + txt if combined_icon else txt))
@@ -388,6 +387,53 @@ def _run_mcp_command(parts: list[str]) -> str:
 # Modo activo: None = general, "modo_warhammer" = warhammer, "modo_monitor" = monitor
 _active_mode: str | None = None
 
+
+def _get_mod_config(mode_key: str | None = None) -> dict | None:
+    """Config del modo desde mods.json (por key como 'modo_warhammer'). None si no existe."""
+    key = mode_key if mode_key is not None else _active_mode
+    if not key:
+        return None
+    for m in get_mods_raw():
+        if m.get("key") == key:
+            return m
+    return None
+
+
+def _run_mod_command(parts: list[str]) -> str:
+    """Ejecuta /mod list | /mod <name> disabled|enabled."""
+    sub = parts[1].lower() if len(parts) >= 2 else ""
+
+    if not sub or sub == "list":
+        mods = get_mods_raw()
+        if not mods:
+            return "[dim]No hay modos en .aia/mods.json[/]"
+        lines = []
+        for m in mods:
+            name = m.get("name", "?")
+            key = m.get("key", f"modo_{name}")
+            color = m.get("color", "#ff8700")
+            enabled = m.get("enabled") is not False
+            status = "enabled" if enabled else "disabled"
+            cmds_list = m.get("slashCommands", [])
+            cmds_str = ", ".join(cmds_list) if cmds_list else "-"
+            lines.append(f"  {name}  [{status}]\n    key: {key} | color: {color}\n    commands: {cmds_str}")
+        return "Modos disponibles:\n\n" + "\n\n".join(lines)
+
+    if len(parts) == 3:
+        name, action = parts[1], parts[2].lower()
+        if action in ("disabled", "disable"):
+            if set_mod_enabled(name, False):
+                invalidate_mcp_cache()
+                return f"[dim]Modo '{name}' deshabilitado.[/]"
+            return f"[dim red]No existe modo '{name}' en .aia/mods.json[/]"
+        if action in ("enabled", "enable"):
+            if set_mod_enabled(name, True):
+                invalidate_mcp_cache()
+                return f"[dim]Modo '{name}' habilitado.[/]"
+            return f"[dim red]No existe modo '{name}' en .aia/mods.json[/]"
+
+    return "[dim]Uso: /mod list | /mod <name> | /mod <name> disabled|enabled[/]"
+
 # Historial de conversación (se mantiene entre llamadas a process())
 _conversation_history: list[dict] = []
 
@@ -397,7 +443,14 @@ _pending_live_action: str | None = None  # "start" | "stop"
 
 
 def _get_available_modes() -> list[str]:
-    """Modos definidos en mcp.json (ej: warhammer, monitor)."""
+    """Modos habilitados desde mods.json (fallback: campo modo_ en mcp.json)."""
+    mods = get_mods_raw()
+    if mods:
+        return sorted(
+            m.get("name", "") for m in mods
+            if m.get("name") and m.get("enabled") is not False
+        )
+    # Fallback: leer modos de mcp.json (compatible con proyectos sin mods.json)
     servers = get_mcp_servers_raw()
     modos = set()
     for s in servers:
@@ -410,12 +463,14 @@ def _get_available_modes() -> list[str]:
 def _get_all_slash_commands() -> list[str]:
     """Todos los comandos slash disponibles (para filtrar por aproximación)."""
     modes = _get_available_modes()
-    cmds = ["/mcp list", "/cache delete", "/flush all", "/flush ollama", "/flush cache", "/flush history"]
+    cmds = ["/mcp list", "/mod list", "/cache delete", "/flush all", "/flush ollama", "/flush cache", "/flush history"]
     if _active_mode:
         cmds.insert(0, "/help")
-    if _active_mode == "modo_monitor":
-        cmds.insert(0, "/watch")
-    return cmds + [f"/modo {m}" for m in modes]
+        mod = _get_mod_config()
+        if mod:
+            for cmd in reversed(mod.get("slashCommands", [])):
+                cmds.insert(0, cmd)
+    return cmds + [f"/mod {m}" for m in modes]
 
 
 def _get_slash_completions(prefix: str) -> list[str]:
@@ -553,26 +608,33 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
     msg_stripped = message.strip()
     msg_lower = msg_stripped.lower()
 
-    # Comandos slash: /modo <nombre>
-    if msg_lower.startswith("/modo"):
-        raw_mode = msg_lower[len("/modo"):].strip()
-        available_modes = _get_available_modes()
-        if not raw_mode:
-            return f"[dim]Modos disponibles: {', '.join(available_modes)}[/]" if available_modes else "[dim]No hay modos disponibles.[/]"
+    # Comandos slash: /mod
+    if msg_lower.startswith("/mod"):
+        parts = msg_stripped.split()
+        sub = parts[1].lower() if len(parts) >= 2 else ""
 
-        mode_name = raw_mode.replace(" ", "_")
+        # /mod list o /mod sin args → listar modos
+        if not sub or sub == "list":
+            return _run_mod_command(parts)
+
+        # /mod <name> disabled|enabled → toggle
+        if len(parts) == 3 and parts[2].lower() in ("disabled", "disable", "enabled", "enable"):
+            return _run_mod_command(parts)
+
+        # /mod <name> → activar modo
+        available_modes = _get_available_modes()
+        mode_name = sub.replace(" ", "_")
         mode_key = f"modo_{mode_name}" if not mode_name.startswith("modo_") else mode_name
-        # Validar contra mcp.json raw para no depender de MCPs activos/habilitados.
         if mode_key.replace("modo_", "", 1) in available_modes:
             _active_mode = mode_key
             _conversation_history.clear()
             label = mode_key.replace("modo_", "", 1).replace("_", " ").title()
             return f"[dim]Modo {label} activado. Escribe 'exit' para salir.[/]"
-        return f"[dim]Modo '{raw_mode}' no existe. Modos: {', '.join(available_modes)}[/]"
+        return f"[dim]Modo '{sub}' no existe. Modos: {', '.join(available_modes)}[/]"
 
     if msg_lower == "/help":
         if not _active_mode:
-            return "[dim]Sin modo activo. Usa /modo <nombre> para activar uno.[/]"
+            return "[dim]Sin modo activo. Usa /mod <nombre> para activar uno.[/]"
         return get_mode_help(_active_mode)
 
     if msg_lower == "/cache delete":
@@ -665,13 +727,6 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
             for s in servers_for_classification:
                 if not s.get("keywords") and s.get("name") and s["name"] not in (selected or []):
                     selected = list(selected or []) + [s["name"]]
-            # Bypass: consultas de temperatura → forzar carga de temperatura MCP
-            _temp_keywords = ("temperatura", "clima", "grados", "qué temperatura", "cómo está el clima")
-            if any(k in msg_lower for k in _temp_keywords) and any(
-                s.get("name") == "temperatura" for s in servers_for_classification
-            ):
-                if "temperatura" not in (selected or []):
-                    selected = list(selected or []) + ["temperatura"]
     else:
         pass  # Sin servidores: mantener selected ([] si bypass hora, None si sin config)
 
@@ -828,13 +883,11 @@ ZW = "\u200b"  # Zero-width space para marcar la letra resaltada
 
 
 def _get_banner_colors() -> tuple[str, str]:
-    """Retorna (color_brillante, color_tenue) del banner según el modo activo."""
-    if _active_mode == "modo_warhammer":
-        return "#9b59b6", "#4d2b5a"
-    elif _active_mode == "modo_monitor":
-        return "#3498db", "#1a4d6e"
-    else:
-        return "#ff8700", "#804400"
+    """Retorna (color_brillante, color_tenue) del banner según el modo activo (desde mods.json)."""
+    mod = _get_mod_config()
+    if mod:
+        return mod.get("color", "#ff8700"), mod.get("colorDim", "#804400")
+    return "#ff8700", "#804400"
 
 
 def _scroll_output(output_buffer: Buffer) -> None:
@@ -898,7 +951,7 @@ def run():
         if text and text != "?":
             input_history.append_string(text)
         if text == "?":
-            append_output("exit | quit - salir | ! <cmd> - shell | /modo warhammer | /cache delete | /flush all|ollama|cache|history | /mcp list | /mcp <name> disabled|enabled\n")
+            append_output("exit | quit - salir | ! <cmd> - shell | /mod list | /mod <name> | /mod <name> disabled|enabled | /cache delete | /flush all|ollama|cache|history | /mcp list | /mcp <name> disabled|enabled\n")
             app.invalidate()
             return True
 
@@ -1102,7 +1155,7 @@ def run():
         if t.startswith("/"):
             completions = _get_slash_completions(t)
             if not completions:
-                completions = ["/mcp list", "/cache delete", "/flush all", "/flush ollama", "/flush cache", "/flush history"] + [f"/modo {m}" for m in _get_available_modes()]
+                completions = ["/mcp list", "/mod list", "/cache delete", "/flush all", "/flush ollama", "/flush cache", "/flush history"] + [f"/mod {m}" for m in _get_available_modes()]
             try:
                 width = get_app().output.get_size().columns
             except Exception:
@@ -1127,11 +1180,11 @@ def run():
         if _active_mode:
             mode_label = f"Modo {_active_mode.replace('modo_', '')} activo"
             rest = f" | /help | exit o Escape para salir{scroll_hint}"
-            if _active_mode == "modo_warhammer":
-                return [("bold fg:#9b59b6", mode_label), ("#888888", rest)]
-            if _active_mode == "modo_monitor":
-                return [("bold fg:#3498db", mode_label), ("#888888", rest + " | /watch para monitor en vivo")]
-            return mode_label + rest
+            mod = _get_mod_config()
+            color = mod.get("color", "#ff8700") if mod else "#ff8700"
+            extra_cmds = mod.get("slashCommands", []) if mod else []
+            extra_hint = (" | " + " | ".join(extra_cmds)) if extra_cmds else ""
+            return [("bold fg:" + color, mode_label), ("#888888", rest + extra_hint)]
         return [("bold fg:#ff8700", "? for shortcuts"), ("#888888", " | Shift+Tab o click para scroll | Tab para escribir")]
     toolbar = Window(
         content=FormattedTextControl(_toolbar_text),
@@ -1148,13 +1201,9 @@ def run():
     ])
 
     def _scrollbar_style() -> Style:
-        """Scrollbar del mismo color que el banner según modo."""
-        if _active_mode == "modo_warhammer":
-            c = "#9b59b6"
-        elif _active_mode == "modo_monitor":
-            c = "#3498db"
-        else:
-            c = "#ff8700"
+        """Scrollbar del mismo color que el banner según modo (desde mods.json)."""
+        mod = _get_mod_config()
+        c = mod.get("color", "#ff8700") if mod else "#ff8700"
         return Style.from_dict({
             "bottom-toolbar": "#888888",
             "scrollbar.background": f"bg:{c}",

@@ -239,6 +239,38 @@ def get_mcp_display_names() -> str | None:
     return ", ".join(names) if names else None
 
 
+def get_mods_raw() -> list[dict[str, Any]]:
+    """Todos los modos de .aia/mods.json (incluyendo deshabilitados)."""
+    project = _project_root()
+    path = project / ".aia" / "mods.json"
+    data = _load_json(path)
+    mods = data.get("mods", [])
+    return [m for m in mods if isinstance(m, dict)]
+
+
+def get_mods() -> list[dict[str, Any]]:
+    """Modos habilitados de .aia/mods.json."""
+    return [m for m in get_mods_raw() if m.get("enabled") is not False]
+
+
+def set_mod_enabled(name: str, enabled: bool) -> bool:
+    """Actualiza enabled de un modo en .aia/mods.json. Retorna True si OK."""
+    project = _project_root()
+    path = project / ".aia" / "mods.json"
+    data = _load_json(path)
+    mods = data.get("mods", [])
+    if not isinstance(mods, list):
+        return False
+    for m in mods:
+        if m.get("name") == name:
+            m["enabled"] = enabled
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            return True
+    return False
+
+
 def get_config_paths() -> dict[str, str]:
     """Rutas de los archivos de config (para mostrar en UI)."""
     home = _home()

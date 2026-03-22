@@ -68,9 +68,10 @@ from amanda_ia.tools import get_tools, execute_tool
 from amanda_ia.config import get_mcp_display_names, get_mcp_servers, get_mcp_servers_raw, set_mcp_server_enabled
 from amanda_ia.config import get_mods_raw, get_mods, set_mod_enabled
 from amanda_ia.config import _project_root
-from amanda_ia.mcp_client import get_mcp_server_info, invalidate_mcp_cache, get_server_name_for_tool, get_mode_help
-from amanda_ia.classifier import classify_prompt
+from amanda_ia.mcp_client import get_mcp_server_info, invalidate_mcp_cache, get_server_name_for_tool, get_server_transport, get_mode_help
+from amanda_ia.classifier import classify_prompt, CLASSIFIER_MODEL
 from amanda_ia.classifier_cache import get as cache_get, set_ as cache_set, delete_all as cache_delete_all
+from amanda_ia.plan_cache import get as plan_cache_get, set_ as plan_cache_set, delete_all as plan_cache_delete_all
 from amanda_ia import live_monitor
 
 console = Console()
@@ -78,11 +79,34 @@ console = Console()
 
 OLLAMA_MODEL = os.environ.get("AIA_OLLAMA_MODEL", "llama3.1:8b")
 
+# Caché de rama git: (ruta, tiempo_última_consulta, branch)
+_git_branch_cache: tuple[str, float, str] | None = None
+_GIT_BRANCH_TTL = 5.0  # segundos entre consultas a git
+
+
+def _get_git_branch(cwd: str) -> str | None:
+    """Retorna la rama git actual del directorio, con caché de 5s. None si no es un repo."""
+    global _git_branch_cache
+    now = time.monotonic()
+    if _git_branch_cache and _git_branch_cache[0] == cwd and now - _git_branch_cache[1] < _GIT_BRANCH_TTL:
+        return _git_branch_cache[2] or None
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=cwd, capture_output=True, text=True, timeout=2,
+        )
+        branch = result.stdout.strip() if result.returncode == 0 else ""
+    except Exception:
+        branch = ""
+    _git_branch_cache = (cwd, now, branch)
+    return branch or None
+
+
 SYSTEM_PROMPT_BASE = """Eres un asistente útil. Tienes acceso a herramientas (tools) configuradas en .aia/settings.json y .aia/mcp.json.
 
 IMPORTANTE: Cuando tengas tools disponibles y el usuario pida información que pueda obtenerse con ellas, USA LA TOOL INMEDIATAMENTE. No preguntes "¿Quieres que...?" ni pidas confirmación. Ejecuta la tool y responde con el resultado. NUNCA digas "no tengo acceso" ni "no puedo" si la tool existe en tu lista de herramientas disponibles. NUNCA inventes ni generes información de memoria si hay una tool que puede obtenerla.
 
-La respuesta final debe estar SIEMPRE en español."""
+SIEMPRE responde en español, sin excepción. Nunca respondas en inglés, chino ni ningún otro idioma. Si el usuario escribe en otro idioma, respóndele igual en español."""
 
 # Fallback cuando mcp.json no tiene "systemPrompt" (opcional por servidor)
 SERVER_PROMPT_HINTS = {
@@ -126,9 +150,21 @@ Responde siempre en español. Para saludos (hola, buenos días) responde breve y
     # Extra del modo activo (ej: spanglish para Warhammer 40K)
     mod = _get_mod_config()
     if mod and mod.get("systemPromptExtra"):
-        parts.append(f"\n\nIMPORTANTE: {mod['systemPromptExtra']}")
+        extra = mod["systemPromptExtra"].replace("{cwd}", cwd)
+        parts.append(f"\n\nIMPORTANTE: {extra}")
     else:
         parts.append("\n\nIMPORTANTE: Responde siempre en español. La respuesta final debe estar en español.")
+
+    # Contexto del proyecto: si el modo define contextFile, inyectarlo en el prompt
+    if mod and mod.get("contextFile"):
+        context_path = Path(cwd) / mod["contextFile"]
+        if context_path.exists():
+            try:
+                context_content = context_path.read_text(encoding="utf-8").strip()
+                parts.append(f"\n\n--- CONTEXTO DEL PROYECTO ({mod['contextFile']}) ---\n{context_content}\n--- FIN CONTEXTO ---")
+            except Exception:
+                pass
+
     return "\n".join(parts)
 
 
@@ -140,30 +176,19 @@ def _get_version() -> str:
     return data["tool"]["poetry"]["version"]
 
 
-def _load_banner() -> list[str]:
-    """Carga el icono desde resources/banner.txt."""
-    path = files("amanda_ia") / "resources" / "banner.txt"
-    return path.read_text().strip().split("\n")
-
-
-def _load_banner_wh40k() -> list[str]:
-    """Carga el banner WH40K desde resources/banner_wh40k.txt."""
-    path = files("amanda_ia") / "resources" / "banner_wh40k.txt"
-    return path.read_text().strip().split("\n")
-
-
-def _load_banner_h2o() -> list[str]:
-    """Carga el banner H2O desde resources/banner_h2o.txt."""
-    path = files("amanda_ia") / "resources" / "banner_h2o.txt"
-    return path.read_text().strip().split("\n")
+def _load_banner(name: str = "banner") -> list[str]:
+    """Carga resources/{name}.txt. Si no existe, usa banner.txt por defecto."""
+    try:
+        path = files("amanda_ia") / "resources" / f"{name}.txt"
+        return path.read_text().strip().split("\n")
+    except Exception:
+        path = files("amanda_ia") / "resources" / "banner.txt"
+        return path.read_text().strip().split("\n")
 
 
 def _get_header_formatted_text():
     """Header como formatted text para prompt_toolkit (banner + textos + rule)."""
     cwd = os.getcwd()
-    icon_lines = _load_banner()
-    wh40k_lines = _load_banner_wh40k()
-    h2o_lines = _load_banner_h2o()
     if _active_mode:
         servers = get_mcp_servers()
         mode_names = _get_servers_by_mode(servers, _active_mode)
@@ -180,12 +205,8 @@ def _get_header_formatted_text():
         f"  {OLLAMA_MODEL} · {tools_label}",
         f"  {cwd}",
     ]
-    _banner_map = {
-        "banner_wh40k": wh40k_lines,
-        "banner_h2o": h2o_lines,
-    }
     mod = _get_mod_config()
-    active_banner_lines = _banner_map.get(mod.get("banner", ""), icon_lines) if mod else icon_lines
+    active_banner_lines = _load_banner(mod.get("banner", "banner")) if mod else _load_banner()
     active_color = mod.get("color", "#ff8700") if mod else "#ff8700"
     lines = []
     num_lines = 5
@@ -602,6 +623,53 @@ def _compress_history(history: list[dict], phase: dict[str, str] | None) -> list
     ] + recent_messages
 
 
+def _fmt_tool_call(server_name: str | None, tool_name: str, args: dict) -> str:
+    """Formatea una llamada MCP para el log: 'http>>mcp.server.tool(k=v, ...)'."""
+    proto = get_server_transport(server_name) if server_name else "sh"
+    srv = server_name or "?"
+    params = ", ".join(f"{k}={repr(v)}" for k, v in args.items()) if args else ""
+    return f"{proto}>>mcp.{srv}.{tool_name}({params})"
+
+
+def _plan_execution(message: str, mcp_tools: list, phase: dict) -> None:
+    """LLM genera el plan de ejecución como texto puro. Sin tools schemas → sin MCP calls."""
+    tool_names = ", ".join(
+        t.get("function", {}).get("name")
+        for t in mcp_tools if t.get("function", {}).get("name")
+    )
+    system = (
+        "Eres un planificador. Dado un prompt y una lista de tools disponibles, "
+        "describe en UNA SOLA LÍNEA los pasos intermedios de ejecución.\n"
+        "Formato: solo los pasos separados por ->. Pasos posibles: LLM, MCP(nombre_operacion).\n"
+        "NO incluyas PROMPT ni RESPUESTA, solo los pasos del medio.\n"
+        "Ejemplos:\n"
+        "- 'hola' → LLM\n"
+        "- 'lista archivos' → MCP(list_directory) -> LLM\n"
+        "- 'modifica changelog con tags' → MCP(run_command) -> LLM -> MCP(run_command) -> LLM -> MCP(write_file)\n"
+        "Responde ÚNICAMENTE la línea, sin texto adicional."
+    )
+    user = f"Tools disponibles: {tool_names}\nPrompt: {message}"
+    try:
+        cached_plan = plan_cache_get(message)
+        if cached_plan is not None:
+            phase.setdefault("log", []).append(f"PLAN>> {cached_plan}")  # noqa: B905
+            return
+        phase["value"] = "Planificando"  # noqa: B905
+        phase.setdefault("log", []).append(f"LLM>>Ollama.{OLLAMA_MODEL} (plan)")  # noqa: B905
+        response = ollama_chat(model=OLLAMA_MODEL, messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ])
+        plan = (getattr(response.message, "content", None) or "").strip().split("\n")[0].strip()
+        for noise in ("PROMPT ->", "PROMPT->", "-> RESPUESTA", "->RESPUESTA", "CLASIFICAR ->", "CLASIFICAR->"):
+            plan = plan.replace(noise, "").strip().strip("->").strip()
+        if plan:
+            plan_cache_set(message, plan)
+            phase.setdefault("log", []).append(f"PLAN>> {plan}")  # noqa: B905
+    except Exception:
+        pass
+
+
 def process(message: str, phase: dict[str, str] | None = None) -> str:
     """Envía el mensaje a Ollama con tools y devuelve la respuesta."""
     global _active_mode, _conversation_history, _pending_live_action
@@ -629,7 +697,7 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
             _active_mode = mode_key
             _conversation_history.clear()
             label = mode_key.replace("modo_", "", 1).replace("_", " ").title()
-            return f"[dim]Modo {label} activado. Escribe 'exit' para salir.[/]"
+            return f"[dim]Modo {label} activado. Escribe 'exit' o presiona ⎋ Esc para salir.[/]"
         return f"[dim]Modo '{sub}' no existe. Modos: {', '.join(available_modes)}[/]"
 
     if msg_lower == "/help":
@@ -639,9 +707,10 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
 
     if msg_lower == "/cache delete":
         cache_delete_all()
+        plan_cache_delete_all()
         invalidate_mcp_cache()
         _conversation_history.clear()
-        return "[dim]Cache borrada (clasificador + MCP tools + historial de conversación).[/]"
+        return "[dim]Cache borrada (clasificador + planificador + MCP tools + historial de conversación).[/]"
 
     if msg_lower.startswith("/flush"):
         subcmd = msg_lower[len("/flush"):].strip()
@@ -662,8 +731,9 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
 
         def _flush_cache() -> str:
             cache_delete_all()
+            plan_cache_delete_all()
             invalidate_mcp_cache()
-            return "Cache borrada (clasificador + MCP tools)."
+            return "Cache borrada (clasificador + planificador + MCP tools)."
 
         def _flush_history() -> str:
             _conversation_history.clear()
@@ -692,6 +762,37 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
         parts = msg_stripped.split()
         return _run_mcp_command(parts)
 
+    # Comandos slash definidos en mods.json (solo válidos en el modo que los define)
+    if msg_stripped.startswith("/") and _active_mode:
+        mod_cfg = _get_mod_config()
+        mod_commands = mod_cfg.get("commands", {}) if mod_cfg else {}
+        if msg_stripped in mod_commands:
+            cmd_def = mod_commands[msg_stripped]
+            # Formato string: solo shell, muestra output directo
+            # Formato objeto: {"shell": "...", "prompt": "..."} → shell + LLM con output
+            shell_cmd = cmd_def if isinstance(cmd_def, str) else cmd_def.get("shell", "")
+            llm_prompt = None if isinstance(cmd_def, str) else cmd_def.get("prompt")
+            cwd = _project_root()
+            try:
+                result = subprocess.run(
+                    shell_cmd, shell=True, capture_output=True, text=True, cwd=cwd, timeout=60
+                )
+                output = result.stdout
+                if result.stderr:
+                    output += f"\n[stderr]\n{result.stderr}"
+                if result.returncode != 0:
+                    output += f"\n[exit: {result.returncode}]"
+                output = output.strip() or "(sin salida)"
+            except subprocess.TimeoutExpired:
+                return "[dim red]Timeout: el comando tardó más de 60s[/]\n"
+            except Exception as e:
+                return f"[dim red]Error: {e}[/]\n"
+
+            if llm_prompt:
+                # Delegar al LLM con el output inyectado en el prompt
+                return process(llm_prompt.replace("{output}", output), phase=phase)
+            return output + "\n"
+
     # Bypass: consultas de hora/fecha solo necesitan get_time (builtin), no MCP
     _time_keywords = ("hora", "fecha", "qué hora", "dime la hora", "qué día", "qué fecha")
     if any(k in msg_lower for k in _time_keywords):
@@ -718,6 +819,7 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
             else:
                 if phase is not None:
                     phase["value"] = "Clasificando"  # noqa: B905
+                    phase.setdefault("log", []).append(f"LLM>>Ollama.{CLASSIFIER_MODEL}")  # noqa: B905
                 selected = classify_prompt(message, servers_for_classification)
                 cache_set(message, selected)
             # Fallback: si clasificador devolvió [] pero el mensaje coincide con keywords, usar esos MCP
@@ -738,6 +840,10 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
     mcp_tools = [t for t in tools if isinstance(t, dict) and t.get("type") == "function"]
     mcp_load_failed = selected and len(selected) > 0 and len(mcp_tools) == 0
 
+    # Etapa de planificación: el LLM genera el flujo esperado (solo log, no afecta ejecución)
+    if phase is not None:
+        _plan_execution(message, mcp_tools, phase)
+
     # Comprimir historial si supera el límite de turnos
     if _count_turns(_conversation_history) >= _MAX_TURNS:
         _conversation_history = _compress_history(_conversation_history, phase)
@@ -752,44 +858,44 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
 
     try:
         last_tool_result = None
-        while True:
-            if phase is not None:
-                phase["value"] = "Generando Respuesta"  # noqa: B905
-            response = ollama_chat(
-                model=OLLAMA_MODEL,
-                messages=messages,
-                tools=tools,
-            )
-            msg = response.message
 
-            if hasattr(msg, "tool_calls") and msg.tool_calls:
-                messages.append(_msg_to_dict(msg))
-                for tc in msg.tool_calls:
-                    name = tc.function.name
-                    if name == "list_mcp_databases":
-                        name = "list_databases"
-                    server_name = get_server_name_for_tool(name)
-                    if phase is not None:
-                        phase["value"] = f"mcp_exe@{server_name}" if server_name else "mcp_exe"  # noqa: B905
-                    args = _normalize_arguments(getattr(tc.function, "arguments", None))
-                    # list_databases no acepta parámetros; el modelo a veces inventa cluster, cluster_name, format
-                    if name in ("list_databases", "list-databases") and args:
-                        args = {}
-                    # Wahapedia está en inglés: traducir query/faction si vienen en español
-                    # Solo consultar MCP cuando hay servidores cargados (evita cargar mongodb etc. para get_time)
-                    if selected and len(selected) > 0 and get_server_name_for_tool(name) == "wahapedia" and args:
-                        args = _translate_wahapedia_args(args)
-                    result = execute_tool(name, args)
-                    last_tool_result = result
-                    messages.append({"role": "tool", "tool_name": name, "content": result})
-                    if name == "start_live_monitor":
-                        _pending_live_action = "start"
-                    elif name == "stop_live_monitor":
-                        _pending_live_action = "stop"
-                continue
+        # Paso 02: LLM con tools
+        if phase is not None:
+            phase["value"] = "Generando Respuesta"  # noqa: B905
+            phase.setdefault("log", []).append(f"LLM>>Ollama.{OLLAMA_MODEL}")  # noqa: B905
+        response = ollama_chat(model=OLLAMA_MODEL, messages=messages, tools=tools)
+        msg = response.message
 
-            content = (getattr(msg, "content", None) or "").strip()
+        # Paso 03-04: ejecutar MCPs si el LLM devolvió tool_calls
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            messages.append(_msg_to_dict(msg))
+            for tc in msg.tool_calls:
+                name = tc.function.name
+                if name == "list_mcp_databases":
+                    name = "list_databases"
+                server_name = get_server_name_for_tool(name)
+                if phase is not None:
+                    phase["value"] = f"mcp_exe@{server_name}" if server_name else "mcp_exe"  # noqa: B905
+                args = _normalize_arguments(getattr(tc.function, "arguments", None))
+                if name in ("list_databases", "list-databases") and args:
+                    args = {}
+                if args.get("path") in (".", "./", ""):
+                    args["path"] = cwd
+                if selected and len(selected) > 0 and get_server_name_for_tool(name) == "wahapedia" and args:
+                    args = _translate_wahapedia_args(args)
+                if phase is not None:
+                    phase.setdefault("log", []).append(_fmt_tool_call(server_name, name, args))  # noqa: B905
+                result = execute_tool(name, args)
+                last_tool_result = result
+                messages.append({"role": "tool", "tool_name": name, "content": result})
+                if name == "start_live_monitor":
+                    _pending_live_action = "start"
+                elif name == "stop_live_monitor":
+                    _pending_live_action = "stop"
+
+        else:
             # Fallback: modelo devolvió JSON como texto en vez de tool_calls
+            content = (getattr(msg, "content", None) or "").strip()
             tool_parsed = _try_parse_tool_json(content)
             if tool_parsed:
                 name, params = tool_parsed
@@ -802,6 +908,8 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                     params = {}
                 if selected and len(selected) > 0 and server_name == "wahapedia" and params:
                     params = _translate_wahapedia_args(params)
+                if phase is not None:
+                    phase.setdefault("log", []).append(_fmt_tool_call(server_name, name, params))  # noqa: B905
                 result = execute_tool(name, params)
                 last_tool_result = result
                 if name == "start_live_monitor":
@@ -811,19 +919,28 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                 messages.append({"role": "assistant", "content": content})
                 lang_hint = " (spanglish para WH40K)" if selected and "wahapedia" in selected else ""
                 messages.append({"role": "user", "content": f"Resultado de {name}: {result}\n\nResponde la pregunta del usuario con esta información. Responde en español{lang_hint}."})
-                continue
-
-            if content:
+            elif content:
+                # Respuesta directa sin tools
                 if mcp_load_failed:
                     content += "\n\n[dim]Nota: No se cargaron las herramientas MCP. ¿Están los servidores corriendo? (ej: cd aia-mcp && poetry run mcp all --http). Prueba /cache delete si el clasificador falló.[/]"
-                # Guardar turno completo en historial (sin system prompt)
                 _conversation_history = messages[1:] + [{"role": "assistant", "content": content}]
                 return content
-            # Fallback: si el modelo no formateó la respuesta, usar el resultado de la tool
-            if last_tool_result:
-                _conversation_history = messages[1:] + [{"role": "assistant", "content": last_tool_result}]
-                return last_tool_result
-            return "[dim]Sin respuesta.[/]"
+            else:
+                return "[dim]Sin respuesta.[/]"
+
+        # Paso 05: LLM sin tools para interpretar los resultados de los MCPs
+        if phase is not None:
+            phase["value"] = "Generando Respuesta"  # noqa: B905
+            phase.setdefault("log", []).append(f"LLM>>Ollama.{OLLAMA_MODEL}")  # noqa: B905
+        final = ollama_chat(model=OLLAMA_MODEL, messages=messages)
+        content = (getattr(final.message, "content", None) or "").strip()
+        if content:
+            _conversation_history = messages[1:] + [{"role": "assistant", "content": content}]
+            return content
+        if last_tool_result:
+            _conversation_history = messages[1:] + [{"role": "assistant", "content": last_tool_result}]
+            return last_tool_result
+        return "[dim]Sin respuesta.[/]"
 
     except Exception as e:
         return f"[dim red]Error: {e}\n¿Ollama está corriendo? (ollama serve)[/]"
@@ -915,7 +1032,7 @@ def run():
         buffer=output_buffer,
         lexer=_QuestionHighlightLexer(),
         focusable=True,
-        focus_on_click=True,
+        focus_on_click=False,
     )
     output_text_area = Window(
         content=output_control,
@@ -939,12 +1056,6 @@ def run():
         if not text:
             return True
         if text.lower() in ("exit", "quit"):
-            if _active_mode:
-                _active_mode = None
-                _conversation_history.clear()
-                append_output("[dim]Modo desactivado.[/]\n\n")
-                app.invalidate()
-                return True
             app.exit(result=None)
             return True
         # Guardar en historial (flecha arriba) para mensajes válidos
@@ -1033,6 +1144,15 @@ def run():
             i = 1
             try:
                 while True:
+                    # Flush de líneas de log MCP pendientes (tool calls)
+                    pending = phase.pop("log", None) if isinstance(phase.get("log"), list) else None
+                    if pending:
+                        lines = output_buffer.text.rsplit("\n", 2)
+                        prefix = lines[0] if lines else ""
+                        log_text = "\n".join(f"  {l}" for l in pending)
+                        output_buffer.text = prefix + "\n" + log_text + "\n\n"
+                        _scroll_output(output_buffer)
+
                     lines = output_buffer.text.rsplit("\n", 2)
                     if len(lines) >= 2:
                         frame = SPINNER_FRAMES[i % len(SPINNER_FRAMES)]
@@ -1099,18 +1219,60 @@ def run():
         if event.app.layout.current_buffer == input_buffer:
             event.app.layout.focus(output_buffer)
 
+    def _scroll_buf_up(buf: "Buffer", step: int = 3) -> None:
+        """Mueve el cursor del buffer hacia arriba: prompt_toolkit auto-scrollea la ventana."""
+        for _ in range(step):
+            pos = buf.document.get_cursor_up_position()
+            if pos:
+                buf.cursor_position += pos
+
+    def _scroll_buf_down(buf: "Buffer", step: int = 3) -> None:
+        """Mueve el cursor del buffer hacia abajo: prompt_toolkit auto-scrollea la ventana."""
+        for _ in range(step):
+            pos = buf.document.get_cursor_down_position()
+            if pos:
+                buf.cursor_position += pos
+
     @kb.add(Keys.ScrollUp)
     def _on_scroll_up(event):
-        """Scroll rueda arriba (mouse_support=True): scrollea el output."""
-        _scroll_window_up(output_text_area, output_buffer)
+        """Scroll rueda arriba: scrollea el output via cursor-move."""
+        _scroll_buf_up(output_buffer)
         event.app.invalidate()
 
     @kb.add(Keys.ScrollDown)
     def _on_scroll_down(event):
-        """Scroll rueda abajo (mouse_support=True): scrollea el output."""
-        _scroll_window_down(output_text_area, output_buffer)
+        """Scroll rueda abajo: scrollea el output via cursor-move."""
+        _scroll_buf_down(output_buffer)
         event.app.invalidate()
 
+    @kb.add(Keys.Vt100MouseEvent, eager=True)
+    def _on_mouse_event(event):
+        """
+        Intercepta eventos de mouse SGR/X10.
+        - btn=64: scroll up  → mueve cursor output hacia arriba
+        - btn=65: scroll down → mueve cursor output hacia abajo
+        - resto: consume el evento sin acción (evita comportamiento erróneo en SSH)
+
+        Usar cursor-move en output_buffer es más confiable que vertical_scroll directo:
+        prompt_toolkit auto-scrollea cualquier Window para mostrar su cursor, incluso
+        si no está enfocado.
+        """
+        data = event.data
+        sgr = re.match(r"\x1b\[<(\d+);\d+;\d+[Mm]", data)
+        if sgr:
+            btn = int(sgr.group(1))
+        else:
+            x10 = re.match(r"\x1b\[M(.)", data)
+            btn = (ord(x10.group(1)) - 32) if x10 else None
+
+        if btn == 64:
+            _scroll_buf_up(output_buffer)
+            event.app.invalidate()
+        elif btn == 65:
+            _scroll_buf_down(output_buffer)
+            event.app.invalidate()
+        # Para otros eventos (clicks, motion): no hacer nada.
+        # El evento es consumido (eager) evitando el dispatch posicional que falla en SSH.
 
     @kb.add("escape")
     def _on_escape(event):
@@ -1178,10 +1340,13 @@ def run():
         if live_monitor.is_active():
             return [("bold fg:#e74c3c", "● EN VIVO"), ("#888888", " | /watch para detener | Escape para detener")]
         if _active_mode:
-            mode_label = f"Modo {_active_mode.replace('modo_', '')} activo"
-            rest = f" | /help | exit o Escape para salir{scroll_hint}"
             mod = _get_mod_config()
             color = mod.get("color", "#ff8700") if mod else "#ff8700"
+            mode_name = _active_mode.replace("modo_", "")
+            branch = _get_git_branch(str(_project_root())) if mod and mod.get("contextFile") else None
+            branch_str = f" ⎇ {branch}" if branch else ""
+            mode_label = f"Modo {mode_name}{branch_str} activo"
+            rest = f" | /help | exit o Escape para salir{scroll_hint}"
             extra_cmds = mod.get("slashCommands", []) if mod else []
             extra_hint = (" | " + " | ".join(extra_cmds)) if extra_cmds else ""
             return [("bold fg:" + color, mode_label), ("#888888", rest + extra_hint)]
@@ -1218,12 +1383,30 @@ def run():
         full_screen=True,
         style=DynamicStyle(_scrollbar_style),
         erase_when_done=True,
-        mouse_support=not bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT")),
+        mouse_support=False,  # Deshabilitado: gestionamos mouse manualmente
         enable_page_navigation_bindings=True,
     )
 
+    # Con mouse_support=False, prompt_toolkit NO agrega load_mouse_bindings()
+    # (dispatch posicional que falla en SSH). Habilitamos solo ?1000h (botones +
+    # scroll) y ?1006h (SGR encoding) manualmente via pre_run para que nuestro
+    # handler de Keys.Vt100MouseEvent sea el único que procese eventos de mouse.
+    def _enable_mouse() -> None:
+        out = app.output
+        out.write_raw("\x1b[?1000h")  # botones: click + scroll wheel
+        out.write_raw("\x1b[?1006h")  # SGR: coordenadas correctas > 223
+        out.flush()
+
     try:
-        app.run()
+        app.run(pre_run=_enable_mouse)
     except (EOFError, KeyboardInterrupt):
         pass
+    finally:
+        try:
+            out = app.output
+            out.write_raw("\x1b[?1000l")
+            out.write_raw("\x1b[?1006l")
+            out.flush()
+        except Exception:
+            pass
     print("\nHasta luego.")

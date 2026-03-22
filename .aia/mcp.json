@@ -34,6 +34,27 @@
       "systemPrompt": "Acumulador/estanque: Para litros, porcentaje o nivel: get_lectura_actual(). Para velocidad de disminución: get_velocidad_disminucion_agua(). Para MONITOR EN TIEMPO REAL (cuando pidan monitorear, ver en vivo, tiempo real, watch): start_live_monitor(). Para detener el live: stop_live_monitor(). Si no hay datos, usa calculate_tinaja_level(50). NUNCA digas 'no puedo'."
     },
     {
+      "name": "github",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      },
+      "modo": "modo_dev",
+      "enabled": true,
+      "keywords": ["github", "issue", "issues", "pull request", "pr", "repo", "repositorio", "commit", "commits", "cerrar issue", "crear issue", "abrir pr", "crear pr", "listar issues", "listar prs", "branch", "rama"],
+      "systemPrompt": "GitHub: usa list_issues/create_issue/close_issue para issues y list_prs/create_pr para PRs. El repo siempre en formato 'owner/repo'. Para saber el repo actual usa run_command('git remote get-url origin', cwd=...) del servidor shell."
+    },
+    {
+      "name": "shell",
+      "command": "$HOME/trabajos/aia-mcp/.venv/bin/mcp",
+      "args": ["shell"],
+      "modo": "modo_dev",
+      "enabled": true,
+      "keywords": ["ejecutar", "correr", "run", "test", "pytest", "git", "grep", "buscar en código", "diff", "log", "compilar", "instalar", "listar tests", "correr tests", "linter", "bash", "comando", "terminal"],
+      "systemPrompt": "Shell: usa run_command(command, cwd) para ejecutar comandos. Siempre pasa cwd con ruta absoluta. Para git info: run_command('git tag', cwd=...), run_command('git log v1.0..v2.0 --oneline', cwd=...). Cuando el output de run_command son datos que necesitas para crear un archivo, úsalos INMEDIATAMENTE con write_file del servidor filesystem — NUNCA preguntes al usuario qué hacer con el resultado. NUNCA ejecutes comandos destructivos sin confirmar."
+    },
+    {
       "name": "filesystem",
       "command": "npx",
       "args": [
@@ -43,9 +64,10 @@
         "${cwd}",
         "/tmp"
       ],
+      "modo": "modo_dev",
       "enabled": true,
-      "keywords": ["archivo", "archivos", "carpeta", "listar", "lista", "contenido", "leer", "escribir", "directorio", "buscar archivos", "crear", "qué hay", "qué archivos", "que archivos", "muéstrame", "muestrame", "muestra los", "lee el", "lee la", "existe el", "hay un archivo", "hay archivos", "ver archivos", "ver carpeta", "esta carpeta", "este directorio", "aquí", "acá", "aca", "ruta", "fichero", "ficheros"],
-      "systemPrompt": "SIEMPRE usa rutas absolutas. El directorio de trabajo actual es {cwd}. Para 'carpeta actual', 'este directorio', 'aquí', 'acá' o cuando no se especifique ruta: USA EXACTAMENTE path=\"{cwd}\". NUNCA uses '.', './' ni rutas relativas. NUNCA inventes archivos."
+      "keywords": ["archivo", "archivos", "carpeta", "listar", "lista", "contenido", "leer", "escribir", "directorio", "buscar archivos", "crear", "qué hay", "qué archivos", "que archivos", "muéstrame", "muestrame", "muestra los", "lee el", "lee la", "existe el", "hay un archivo", "hay archivos", "ver archivos", "ver carpeta", "esta carpeta", "este directorio", "aquí", "acá", "aca", "ruta", "fichero", "ficheros", "crea", "crea un archivo", "escribe", "modifica", "edita", "nuevo archivo", "changelog", "readme", "md"],
+      "systemPrompt": "SIEMPRE usa rutas absolutas. El directorio de trabajo actual es {cwd}. Para 'carpeta actual', 'este directorio', 'aquí', 'acá' o cuando no se especifique ruta: USA EXACTAMENTE path=\"{cwd}\". NUNCA uses '.', './' ni rutas relativas. NUNCA inventes archivos. Para crear o escribir archivos usa write_file con ruta absoluta."
     }
   ]
 }

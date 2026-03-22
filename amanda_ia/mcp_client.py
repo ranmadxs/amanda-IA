@@ -29,6 +29,29 @@ from amanda_ia.config import get_mcp_servers
 _STDIO_ERRLOG = open(os.devnull, "w")
 
 
+def _stdio_params(server: dict[str, Any]) -> StdioServerParameters:
+    """Crea StdioServerParameters expandiendo $HOME/~ en command y args."""
+    def _expand(s: str) -> str:
+        return os.path.expanduser(os.path.expandvars(s))
+
+    # Construir env con PATH enriquecido para que npx y otros binarios de Homebrew sean encontrados
+    env = dict(os.environ)
+    for extra in ("/opt/homebrew/bin", "/usr/local/bin"):
+        if extra not in env.get("PATH", ""):
+            env["PATH"] = extra + ":" + env.get("PATH", "")
+    # Expandir variables del server (ej: GITHUB_PERSONAL_ACCESS_TOKEN)
+    if server.get("env"):
+        for k, v in server["env"].items():
+            env[k] = _expand(str(v))
+
+    return StdioServerParameters(
+        command=_expand(server["command"]),
+        args=[_expand(a) for a in server.get("args", [])],
+        env=env,
+        cwd=server.get("cwd"),
+    )
+
+
 async def _call_tool_http(url: str, name: str, arguments: dict[str, Any]) -> str:
     """Llama a una tool en servidor MCP HTTP."""
     async with streamable_http_client(url) as (read_stream, write_stream, _):
@@ -40,12 +63,7 @@ async def _call_tool_http(url: str, name: str, arguments: dict[str, Any]) -> str
 
 async def _call_tool_stdio(server: dict[str, Any], name: str, arguments: dict[str, Any]) -> str:
     """Llama a una tool en servidor MCP stdio (proceso)."""
-    params = StdioServerParameters(
-        command=server["command"],
-        args=server.get("args", []),
-        env=server.get("env"),
-        cwd=server.get("cwd"),
-    )
+    params = _stdio_params(server)
     async with stdio_client(params, errlog=_STDIO_ERRLOG) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
@@ -91,12 +109,7 @@ def _mcp_tool_to_ollama(tool) -> dict[str, Any]:
 
 async def _list_tools_stdio(server: dict[str, Any]) -> tuple[list[str], list[dict]]:
     """Lista tools de servidor MCP stdio. Retorna (nombres, schemas Ollama)."""
-    params = StdioServerParameters(
-        command=server["command"],
-        args=server.get("args", []),
-        env=server.get("env"),
-        cwd=server.get("cwd"),
-    )
+    params = _stdio_params(server)
     async with stdio_client(params, errlog=_STDIO_ERRLOG) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
@@ -231,6 +244,18 @@ def get_server_name_for_tool(tool_name: str) -> str | None:
     return server.get("name") if server else None
 
 
+def get_server_transport(server_name: str) -> str:
+    """Retorna el protocolo del servidor: 'http', 'npx' o 'sh'."""
+    tool_map = _get_tool_to_server_map()
+    for server in tool_map.values():
+        if server.get("name") == server_name:
+            if server.get("url"):
+                return "http"
+            cmd = os.path.basename(server.get("command", ""))
+            return "npx" if cmd == "npx" else "sh"
+    return "sh"
+
+
 def invalidate_mcp_cache() -> None:
     """Invalida la caché de tools MCP. Útil si cambias .aia/mcp.json en caliente."""
     global _tool_map_cache, _schemas_cache
@@ -247,12 +272,7 @@ async def _list_tools_described(server: dict[str, Any]) -> list[tuple[str, str]]
                 result = await session.list_tools()
                 return [(t.name, getattr(t, "description", "") or "") for t in result.tools]
     elif server.get("command"):
-        params = StdioServerParameters(
-            command=server["command"],
-            args=server.get("args", []),
-            env=server.get("env"),
-            cwd=server.get("cwd"),
-        )
+        params = _stdio_params(server)
         async with stdio_client(params, errlog=_STDIO_ERRLOG) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()

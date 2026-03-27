@@ -275,7 +275,14 @@ def run_web(host: str = "0.0.0.0", port: int = 8080) -> None:
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
 
-    print(f"amanda-IA web  →  http://localhost:{port}")
+    try:
+        import tomllib
+        _toml = tomllib.loads((Path(__file__).resolve().parent.parent / "pyproject.toml").read_text())
+        _version = _toml["tool"]["poetry"]["version"]
+    except Exception:
+        _version = "?"
+
+    print(f"amanda-IA v{_version}  →  http://localhost:{port}")
     print("Ctrl+C para detener")
 
     # time.sleep es interrumpible por señales; .join() puede no serlo en todos los entornos

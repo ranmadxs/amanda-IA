@@ -74,6 +74,7 @@ from amanda_ia.classifier import classify_prompt, CLASSIFIER_MODEL
 from amanda_ia.classifier_cache import get as cache_get, set_ as cache_set, delete_all as cache_delete_all
 from amanda_ia.plan_cache import get as plan_cache_get, set_ as plan_cache_set, delete_all as plan_cache_delete_all
 from amanda_ia import live_monitor
+from amanda_ia.feedback import save_feedback
 
 console = Console()
 
@@ -478,6 +479,8 @@ _conversation_history: list[dict] = []
 
 # Acción pendiente del live monitor (set en executor thread, leído en event loop)
 _pending_live_action: str | None = None  # "start" | "stop"
+_pending_feedback: dict | None = None   # {question, plan, response, mode}
+_feedback_voted: str | None = None      # "up" | "down" | None
 
 
 
@@ -1195,7 +1198,7 @@ def run():
                 pass
 
         def update_ui(result: str):
-            global _pending_live_action
+            global _pending_live_action, _pending_feedback, _feedback_voted
             nonlocal spinner_task
             if spinner_task and not spinner_task.done():
                 spinner_task.cancel()
@@ -1209,6 +1212,14 @@ def run():
                 live_monitor.start(append_output, app.invalidate, loop)
             elif action == "stop" and live_monitor.is_active():
                 live_monitor.stop()
+            # Activar feedback bar para la respuesta recién mostrada
+            _feedback_voted = None
+            _pending_feedback = {
+                "question": text,
+                "plan": phase.get("log", []) if phase else [],
+                "response": result,
+                "mode": _active_mode,
+            }
             app.layout.focus(input_buffer)
             app.invalidate()
 
@@ -1285,12 +1296,17 @@ def run():
         si no está enfocado.
         """
         data = event.data
-        sgr = re.match(r"\x1b\[<(\d+);\d+;\d+[Mm]", data)
+        col = row = None
+        sgr = re.match(r"\x1b\[<(\d+);(\d+);(\d+)([Mm])", data)
         if sgr:
             btn = int(sgr.group(1))
+            col = int(sgr.group(2))
+            row = int(sgr.group(3))
+            pressed = sgr.group(4) == "M"
         else:
             x10 = re.match(r"\x1b\[M(.)", data)
             btn = (ord(x10.group(1)) - 32) if x10 else None
+            pressed = True
 
         if btn == 64:
             _scroll_buf_up(output_buffer)
@@ -1298,8 +1314,21 @@ def run():
         elif btn == 65:
             _scroll_buf_down(output_buffer)
             event.app.invalidate()
-        # Para otros eventos (clicks, motion): no hacer nada.
-        # El evento es consumido (eager) evitando el dispatch posicional que falla en SSH.
+        elif btn == 0 and pressed and _pending_feedback and col is not None and row is not None:
+            # Click izquierdo: detectar si cae en la feedback bar
+            # La feedback bar está 2 filas antes del borde inferior (toolbar=1, feedback=2)
+            try:
+                total_rows = event.app.output.get_size().rows
+                total_cols = event.app.output.get_size().columns
+            except Exception:
+                total_rows = 24
+                total_cols = 80
+            # feedback_bar row = total_rows - 1 (toolbar último, feedback penúltimo)
+            if row == total_rows - 1:
+                vote = "up" if col <= total_cols // 2 else "down"
+                _register_vote(vote)
+                event.app.invalidate()
+        # Resto de eventos: consumidos sin acción (evita dispatch posicional en SSH).
 
     @kb.add("escape")
     def _on_escape(event):
@@ -1318,7 +1347,46 @@ def run():
             append_output("[dim]Modo desactivado.[/]\n\n")
             event.app.invalidate()
 
+    def _register_vote(vote: str) -> None:
+        """Registra un voto (up/down), guarda en MongoDB y actualiza la UI."""
+        global _pending_feedback, _feedback_voted
+        if not _pending_feedback:
+            return
+        fb = _pending_feedback
+        _pending_feedback = None
+        _feedback_voted = vote
+        import threading
+        threading.Thread(
+            target=save_feedback,
+            kwargs={
+                "question": fb["question"],
+                "plan": fb["plan"],
+                "response": fb["response"],
+                "vote": 1 if vote == "up" else -1,
+                "mode": fb.get("mode"),
+            },
+            daemon=True,
+        ).start()
+
+    def _feedback_bar_text():
+        if _feedback_voted == "up":
+            return [("fg:#27ae60 bold", "  👍")]
+        if _feedback_voted == "down":
+            return [("fg:#e74c3c bold", "  👎")]
+        if _pending_feedback:
+            return [
+                ("fg:#27ae60 bold", "  👍"),
+                ("", "        "),
+                ("fg:#e74c3c bold", "👎"),
+            ]
+        return [("", "")]
+
     header = _create_header_window()
+    feedback_bar = Window(
+        content=FormattedTextControl(_feedback_bar_text),
+        height=1,
+        dont_extend_height=True,
+    )
     input_window = Window(
         content=BufferControl(
             buffer=input_buffer,
@@ -1389,6 +1457,7 @@ def run():
         header,
         output_text_area,
         input_window,
+        feedback_bar,
         toolbar,
     ])
 

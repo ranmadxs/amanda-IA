@@ -119,20 +119,31 @@ async def _list_tools_stdio(server: dict[str, Any]) -> tuple[list[str], list[dic
             return names, schemas
 
 
+# Cache: evita reconectar a cada servidor en cada mensaje.
+# Se invalida al cambiar de modo (/mod) o con /cache delete.
+_tool_map_cache: dict[str, dict[str, Any]] | None = None
+_schemas_cache: list[dict[str, Any]] | None = None
+
+
 def _fetch_server_tools(
     server_names: list[str] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
     """
-    Conecta a los servidores indicados y lista sus tools.
-    Si server_names es None, conecta a todos los habilitados.
+    Conecta solo a servidores no cacheados. Acumula el cache globalmente.
+    Así una llamada con server_names=["airbnb"] enriquece el cache con sus tools,
+    y llamadas posteriores sin server_names las encuentran sin reconectar.
     """
+    global _tool_map_cache, _schemas_cache
     servers = get_mcp_servers()
     if server_names is not None:
         servers = [s for s in servers if s.get("name") in server_names]
-    result_map: dict[str, dict[str, Any]] = {}
-    result_schemas: list[dict[str, Any]] = []
+    result_map: dict[str, dict[str, Any]] = dict(_tool_map_cache or {})
+    result_schemas: list[dict[str, Any]] = list(_schemas_cache or [])
+    loaded = {s.get("name") for s in result_map.values() if s.get("name")}
     for server in servers:
         name = server.get("name")
+        if name in loaded:
+            continue
         try:
             if server.get("url"):
                 names, schemas = anyio.run(_list_tools_http, server["url"])
@@ -143,14 +154,19 @@ def _fetch_server_tools(
             for t in names:
                 result_map[t] = server
             result_schemas.extend(schemas)
+            loaded.add(name)
         except BaseException as e:
             msg = _format_mcp_error(e)
             log.warning("MCP server %s: %s", name, msg)
+    _tool_map_cache = result_map
+    _schemas_cache = result_schemas
     return result_map, result_schemas
 
 
 def _get_tool_to_server_map(server_names: list[str] | None = None) -> dict[str, dict[str, Any]]:
-    """Mapa tool_name -> server config."""
+    """Mapa tool_name -> server config. Usa cache global acumulativo."""
+    if _tool_map_cache is not None and not server_names:
+        return _tool_map_cache
     return _fetch_server_tools(server_names)[0]
 
 
@@ -243,8 +259,10 @@ def get_server_transport(server_name: str) -> str:
 
 
 def invalidate_mcp_cache() -> None:
-    """No-op: el cache fue eliminado, tools se cargan fresh en cada consulta."""
-    pass
+    """Invalida el cache de tools MCP. Llamado al cambiar de modo o con /cache delete."""
+    global _tool_map_cache, _schemas_cache
+    _tool_map_cache = None
+    _schemas_cache = None
 
 
 async def _list_tools_described(server: dict[str, Any]) -> list[tuple[str, str]]:

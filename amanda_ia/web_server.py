@@ -256,10 +256,28 @@ class _Server(socketserver.ThreadingMixIn, HTTPServer):
 
 
 def run_web(host: str = "0.0.0.0", port: int = 8080) -> None:
+    import os
+    import signal
+    import threading
+    import time
+
     server = _Server((host, port), _Handler)
+
+    def _stop(*_):
+        print("\nServidor detenido.")
+        os._exit(0)
+
+    # Instalar explícitamente — sobrescribe SIG_IGN si lo heredamos del shell
+    signal.signal(signal.SIGINT,  _stop)
+    signal.signal(signal.SIGTERM, _stop)
+
+    # serve_forever en daemon thread; main thread queda libre para señales
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+
     print(f"amanda-IA web  →  http://localhost:{port}")
     print("Ctrl+C para detener")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nServidor detenido.")
+
+    # time.sleep es interrumpible por señales; .join() puede no serlo en todos los entornos
+    while t.is_alive():
+        time.sleep(0.5)

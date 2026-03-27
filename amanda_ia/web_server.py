@@ -245,28 +245,25 @@ def make_app() -> Starlette:
 def run_web(host: str = "0.0.0.0", port: int = 8080) -> None:
     import os
     import signal
-    import subprocess
-    import sys
+    import threading
 
-    script = (
-        "import uvicorn;"
-        "from amanda_ia.web_server import make_app;"
-        f"uvicorn.run(make_app(), host='{host}', port={port}, log_level='warning')"
-    )
-    proc = subprocess.Popen(
-        [sys.executable, "-c", script],
-        start_new_session=True,  # child in own session → no terminal SIGINT
-    )
+    import uvicorn
+
+    config = uvicorn.Config(make_app(), host=host, port=port, log_level="warning")
+    server = uvicorn.Server(config)
+
+    # Uvicorn en daemon thread: al no ser el main thread, asyncio/uvicorn no puede
+    # instalar signal handlers → sin interferencia.  os._exit mata todo al instante.
+    t = threading.Thread(target=server.run, daemon=True)
+    t.start()
 
     def _stop(*_):
-        proc.kill()
         print("\nServidor detenido.")
         os._exit(0)
 
-    # El padre es Python puro sin asyncio — signal.signal funciona directamente
     signal.signal(signal.SIGINT,  _stop)
     signal.signal(signal.SIGTERM, _stop)
 
     print(f"amanda-IA web  →  http://localhost:{port}")
     print("Ctrl+C para detener")
-    proc.wait()
+    t.join()

@@ -387,19 +387,25 @@ def _run_mcp_command(parts: list[str]) -> str:
         servers = get_mcp_servers_raw()
         if not servers:
             return "[dim]No hay servidores MCP en .aia/mcp.json[/]"
+        # Filtrar según modo activo
+        if _active_mode:
+            active = [s for s in servers if s.get("modo") == _active_mode]
+            ctx_label = f"Modo {_active_mode.replace('modo_', '').replace('_', ' ').title()}"
+        else:
+            active = [s for s in servers if not s.get("modo")]
+            ctx_label = "Modo general"
+        active = [s for s in active if s.get("enabled") is not False]
+        if not active:
+            return f"[dim]No hay MCPs activos para {ctx_label}[/]"
         lines = []
-        for s in servers:
+        for s in active:
             name = s.get("name", "?")
             typ = "HTTP" if s.get("url") else "stdio"
             url_or_cmd = s.get("url") or f"{s.get('command', '')} {' '.join(str(a) for a in s.get('args', []))}"
-            enabled = s.get("enabled") is not False
-            status = "enabled" if enabled else "disabled"
-            modo = s.get("modo")
             kw = s.get("keywords", [])
             kw_str = ", ".join(kw[:5]) + ("..." if len(kw) > 5 else "") if kw else "-"
-            modo_str = f" | modo: {modo}" if modo else ""
-            lines.append(f"  {name}\n    tipo: {typ} | {status}{modo_str}\n    {url_or_cmd}\n    keywords: {kw_str}")
-        return "MCP servidores:\n\n" + "\n\n".join(lines)
+            lines.append(f"  🟢 {name}\n    tipo: {typ}\n    {url_or_cmd}\n    keywords: {kw_str}")
+        return f"MCP activos ({ctx_label}):\n\n" + "\n\n".join(lines)
 
     if len(parts) == 3:
         name, action = parts[1], parts[2].lower()

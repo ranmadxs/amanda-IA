@@ -7,6 +7,7 @@
       "env": {
         "MDB_MCP_CONNECTION_STRING": "${MONGODB_URI}"
       },
+      "enabled": false,
       "keywords": ["mongodb", "mongo", "base de datos", "colección", "documento", "query", "insertar", "buscar"],
       "systemPrompt": "MongoDB: conexión preconfigurada. NO pases host, port, username ni password. Para listar bases de datos: USA list_databases (no list_mcp_databases). NUNCA pases parámetros: ni cluster, ni cluster_name, ni format. Siempre arguments vacío {}. list-collections requiere solo database. NUNCA inventes datos."
     },

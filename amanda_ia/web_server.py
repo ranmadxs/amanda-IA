@@ -259,19 +259,14 @@ def run_web(host: str = "0.0.0.0", port: int = 8080) -> None:
     import os
     import signal
     import threading
-    import time
+
+    # Bloquear SIGINT/SIGTERM antes de arrancar threads para que sigwait
+    # los capture atómicamente (los threads heredan la máscara)
+    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
 
     server = _Server((host, port), _Handler)
 
-    def _stop(*_):
-        print("\nServidor detenido.")
-        os._exit(0)
-
-    # Instalar explícitamente — sobrescribe SIG_IGN si lo heredamos del shell
-    signal.signal(signal.SIGINT,  _stop)
-    signal.signal(signal.SIGTERM, _stop)
-
-    # serve_forever en daemon thread; main thread queda libre para señales
+    # serve_forever en daemon thread; muere cuando el main thread termina
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
 
@@ -285,6 +280,8 @@ def run_web(host: str = "0.0.0.0", port: int = 8080) -> None:
     print(f"amanda-IA v{_version}  →  http://localhost:{port}")
     print("Ctrl+C para detener")
 
-    # time.sleep es interrumpible por señales; .join() puede no serlo en todos los entornos
-    while t.is_alive():
-        time.sleep(0.5)
+    # sigwait bloquea hasta recibir SIGINT o SIGTERM — POSIX puro, sin depender
+    # del mecanismo de Python ni del entorno del shell
+    signal.sigwait({signal.SIGINT, signal.SIGTERM})
+    print("\nServidor detenido.")
+    os._exit(0)

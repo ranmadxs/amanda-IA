@@ -35,12 +35,10 @@ class TestMcpCommand:
         )
 
         result = _run_mcp_command(["/mcp", "list"])
+        # Solo servidores activos (sin modo) se muestran; filesystem está disabled → oculto
         assert "temperatura" in result
-        assert "filesystem" in result
-        assert "HTTP" in result
-        assert "stdio" in result
-        assert "enabled" in result
-        assert "disabled" in result
+        assert "filesystem" not in result
+        assert "🟢" in result
 
     def test_mcp_disable_server(self, tmp_path, monkeypatch):
         monkeypatch.setattr("amanda_ia.config._project_root", lambda: tmp_path)
@@ -94,7 +92,7 @@ class TestMcpCommand:
 
         result = process("/mcp list")
         assert "test" in result
-        assert "MCP servidores" in result
+        assert "MCP activos" in result
 
 
 class TestModeCommand:

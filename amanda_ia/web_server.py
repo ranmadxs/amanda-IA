@@ -7,18 +7,15 @@ Uso:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
+import socketserver
 import threading
+import urllib.error
+import urllib.request
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-
-import uvicorn
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse
-from starlette.routing import Route
 
 import amanda_ia.agent as agent_mod
 from amanda_ia.agent import process
@@ -36,9 +33,6 @@ _web_mode: str | None = None
 
 _RICH_RE = re.compile(r"\[/?[^\]]*\]")
 _IMG_RE = re.compile(r"\[AIA_IMG:[^\]]+\]")
-
-# Comandos TUI-only que tienen implementación propia en web (no bloquear, manejar)
-_WEB_HANDLED = {"/watch"}
 
 
 def _strip(text: str) -> str:
@@ -111,159 +105,161 @@ def _help_no_mode() -> str:
     return "\n".join(lines)
 
 
-# ── Handlers ──────────────────────────────────────────────────────────────────
+# ── Handler HTTP ───────────────────────────────────────────────────────────────
 
-async def index_handler(request: Request) -> HTMLResponse:
-    html_path = STATIC / "index.html"
-    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+class _Handler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):  # silenciar logs de acceso
+        pass
 
+    # ── helpers ──
 
-async def mods_handler(request: Request) -> JSONResponse:
-    return JSONResponse(_all_mods_info())
+    def _send_json(self, data: object, status: int = 200) -> None:
+        body = json.dumps(data).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
 
+    def _send_html(self, html: str) -> None:
+        body = html.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
-async def commands_handler(request: Request) -> JSONResponse:
-    return JSONResponse(_web_commands(_web_mode))
+    def _read_json(self) -> dict:
+        length = int(self.headers.get("Content-Length", 0))
+        return json.loads(self.rfile.read(length))
 
+    # ── GET ──
 
-async def mode_handler(request: Request) -> JSONResponse:
-    global _web_mode
-    body = await request.json()
-    key = body.get("mode", "").strip()
-    with _lock:
-        _web_mode = key if key else None
-        agent_mod._active_mode = _web_mode or ""
-        agent_mod._conversation_history.clear()
-    return JSONResponse({"ok": True, "mode": _web_mode, "commands": _web_commands(_web_mode)})
+    def do_GET(self) -> None:
+        path = self.path.split("?")[0]
+        if path == "/":
+            self._send_html((STATIC / "index.html").read_text(encoding="utf-8"))
+        elif path == "/api/mods":
+            self._send_json(_all_mods_info())
+        elif path == "/api/commands":
+            self._send_json(_web_commands(_web_mode))
+        elif path == "/api/watch":
+            self._handle_watch()
+        else:
+            self._send_json({"error": "not found"}, 404)
 
+    # ── POST ──
 
-async def chat_handler(request: Request) -> JSONResponse:
-    body = await request.json()
-    text = body.get("text", "").strip()
-    if not text:
-        return JSONResponse({"error": "empty"}, status_code=400)
+    def do_POST(self) -> None:
+        path = self.path.split("?")[0]
+        if path == "/api/mode":
+            self._handle_mode(self._read_json())
+        elif path == "/api/chat":
+            self._handle_chat(self._read_json())
+        else:
+            self._send_json({"error": "not found"}, 404)
 
-    text_lower = text.lower()
+    # ── rutas ──
 
-    # /watch → el frontend abre EventSource, no llega aquí; pero si llega igual manejarlo
-    if text_lower == "/watch":
-        return JSONResponse({"response": "__watch__"})
-
-    if text_lower == "/help" and not _web_mode:
-        return JSONResponse({"response": _help_no_mode()})
-
-    loop = asyncio.get_running_loop()
-
-    def _run() -> str:
+    def _handle_mode(self, body: dict) -> None:
+        global _web_mode
+        key = body.get("mode", "").strip()
         with _lock:
-            if _web_mode is not None:
-                agent_mod._active_mode = _web_mode
-            return process(text)
+            _web_mode = key if key else None
+            agent_mod._active_mode = _web_mode or ""
+            agent_mod._conversation_history.clear()
+        self._send_json({"ok": True, "mode": _web_mode, "commands": _web_commands(_web_mode)})
 
-    result = await loop.run_in_executor(None, _run)
-    return JSONResponse({"response": _strip(result)})
+    def _handle_chat(self, body: dict) -> None:
+        text = body.get("text", "").strip()
+        if not text:
+            self._send_json({"error": "empty"}, 400)
+            return
 
+        text_lower = text.lower()
 
-async def watch_handler(request: Request):
-    """Proxy SSE: reenvía el stream de localhost:8003/live al browser."""
-    from sse_starlette.sse import EventSourceResponse
-    import httpx
+        if text_lower == "/watch":
+            self._send_json({"response": "__watch__"})
+            return
 
-    async def event_generator():
-        timeout = httpx.Timeout(connect=5.0, read=60.0, write=5.0, pool=5.0)
+        if text_lower == "/help" and not _web_mode:
+            self._send_json({"response": _help_no_mode()})
+            return
+
+        def _run() -> str:
+            with _lock:
+                if _web_mode is not None:
+                    agent_mod._active_mode = _web_mode
+                return process(text)
+
+        result = _run()
+        self._send_json({"response": _strip(result)})
+
+    def _handle_watch(self) -> None:
+        """SSE: reenvía el stream de localhost:8003/live al browser."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+        def send_event(event: str, data: dict) -> None:
+            try:
+                msg = f"event: {event}\ndata: {json.dumps(data)}\n\n"
+                self.wfile.write(msg.encode())
+                self.wfile.flush()
+            except OSError:
+                pass
+
         try:
-            async with httpx.AsyncClient() as client:
-                async with client.stream(
-                    "GET",
-                    MONITOR_SSE_URL,
-                    headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"},
-                    timeout=timeout,
-                ) as resp:
-                    if resp.status_code != 200:
-                        yield {
-                            "event": "error",
-                            "data": json.dumps({
-                                "msg": f"No se pudo conectar al monitor (HTTP {resp.status_code}). "
-                                       "¿Está corriendo el servidor monitor?"
-                            }),
-                        }
-                        return
-
-                    yield {"event": "connected", "data": json.dumps({"msg": "Conectado al stream MQTT"})}
-
-                    async for raw_line in resp.aiter_lines():
-                        if await request.is_disconnected():
-                            break
-                        if not raw_line.startswith("data: "):
-                            continue
-                        try:
-                            data = json.loads(raw_line[6:])
-                            litros = float(data.get("litros") or 0)
-                            pct = float(data.get("porcentaje") or 0)
-                            dist = float(data.get("distancia") or 0)
-                            estado = data.get("estado", "?")
-                            ts = datetime.now().strftime("%H:%M:%S")
-                            yield {
-                                "event": "reading",
-                                "data": json.dumps({
-                                    "ts": ts,
-                                    "litros": litros,
-                                    "pct": pct,
-                                    "dist": dist,
-                                    "estado": estado,
-                                    "line": f"[{ts}]  {litros:.0f} L  {pct:.1f}%  dist {dist:.1f} cm  {estado}",
-                                }),
-                            }
-                        except Exception:
-                            pass
-
+            req = urllib.request.Request(
+                MONITOR_SSE_URL,
+                headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                send_event("connected", {"msg": "Conectado al stream MQTT"})
+                for raw_line in resp:
+                    line = raw_line.decode(errors="replace").strip()
+                    if not line.startswith("data: "):
+                        continue
+                    try:
+                        data = json.loads(line[6:])
+                        litros = float(data.get("litros") or 0)
+                        pct    = float(data.get("porcentaje") or 0)
+                        dist   = float(data.get("distancia") or 0)
+                        estado = data.get("estado", "?")
+                        ts     = datetime.now().strftime("%H:%M:%S")
+                        send_event("reading", {
+                            "ts": ts,
+                            "litros": litros,
+                            "pct": pct,
+                            "dist": dist,
+                            "estado": estado,
+                            "line": f"[{ts}]  {litros:.0f} L  {pct:.1f}%  dist {dist:.1f} cm  {estado}",
+                        })
+                    except Exception:
+                        pass
         except Exception as exc:
-            yield {
-                "event": "error",
-                "data": json.dumps({
-                    "msg": f"No se pudo conectar al monitor ({exc}). "
-                           "Asegúrate que el servidor monitor está corriendo."
-                }),
-            }
-
-    return EventSourceResponse(event_generator())
+            send_event("error", {"msg": (
+                f"No se pudo conectar al monitor ({exc}). "
+                "Asegúrate que el servidor monitor está corriendo."
+            )})
 
 
-# ── App factory ───────────────────────────────────────────────────────────────
+# ── Servidor ───────────────────────────────────────────────────────────────────
 
-def make_app() -> Starlette:
-    return Starlette(routes=[
-        Route("/", index_handler),
-        Route("/api/mods",     mods_handler),
-        Route("/api/commands", commands_handler),
-        Route("/api/mode",     mode_handler,  methods=["POST"]),
-        Route("/api/chat",     chat_handler,  methods=["POST"]),
-        Route("/api/watch",    watch_handler),
-    ])
+class _Server(socketserver.ThreadingMixIn, HTTPServer):
+    """HTTP multihilo con daemon_threads para que Ctrl+C lo mate limpio."""
+    daemon_threads = True
 
 
 def run_web(host: str = "0.0.0.0", port: int = 8080) -> None:
-    import os
-    import signal
-    import threading
-
-    import uvicorn
-
-    config = uvicorn.Config(make_app(), host=host, port=port, log_level="warning")
-    server = uvicorn.Server(config)
-
-    # Uvicorn en daemon thread: al no ser el main thread, asyncio/uvicorn no puede
-    # instalar signal handlers → sin interferencia.  os._exit mata todo al instante.
-    t = threading.Thread(target=server.run, daemon=True)
-    t.start()
-
-    def _stop(*_):
-        print("\nServidor detenido.")
-        os._exit(0)
-
-    signal.signal(signal.SIGINT,  _stop)
-    signal.signal(signal.SIGTERM, _stop)
-
+    server = _Server((host, port), _Handler)
     print(f"amanda-IA web  →  http://localhost:{port}")
     print("Ctrl+C para detener")
-    t.join()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nServidor detenido.")

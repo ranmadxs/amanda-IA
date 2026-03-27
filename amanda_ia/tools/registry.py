@@ -14,18 +14,11 @@ BUILTIN_REGISTRY = {
     "get_time": builtin.get_time,
 }
 
-# Cache de tools MCP (se llena al primer uso)
-_mcp_tool_names: list[str] | None = None
-
-
 def _mcp_has_tool(name: str) -> bool:
-    """True si la tool está en MCP. No carga MCP si es builtin."""
+    """True si la tool está en MCP. Usa el tool_map_cache que se actualiza por modo."""
     if name in BUILTIN_REGISTRY:
         return False
-    global _mcp_tool_names
-    if _mcp_tool_names is None:
-        _mcp_tool_names = get_mcp_tools()
-    return name in _mcp_tool_names
+    return name in get_mcp_tools()
 
 
 def _get_builtin_tools() -> list:

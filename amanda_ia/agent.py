@@ -708,6 +708,7 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
         if mode_key.replace("modo_", "", 1) in available_modes:
             _active_mode = mode_key
             _conversation_history.clear()
+            invalidate_mcp_cache()
             label = mode_key.replace("modo_", "", 1).replace("_", " ").title()
             return f"[dim]Modo {label} activado. Escribe 'exit' o presiona ⎋ Esc para salir.[/]"
         import difflib
@@ -715,6 +716,7 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
         if close:
             _active_mode = f"modo_{close[0]}"
             _conversation_history.clear()
+            invalidate_mcp_cache()
             label = close[0].replace("_", " ").title()
             return f"[dim]Modo {label} activado. Escribe 'exit' o presiona ⎋ Esc para salir.[/]"
         return f"[dim]Modo '{sub}' no existe. Modos: {', '.join(available_modes)}[/]"

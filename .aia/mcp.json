@@ -34,6 +34,13 @@
       "systemPrompt": "Acumulador/estanque: Para litros, porcentaje o nivel: get_lectura_actual(). Para velocidad de disminución: get_velocidad_disminucion_agua(). Para MONITOR EN TIEMPO REAL (cuando pidan monitorear, ver en vivo, tiempo real, watch): start_live_monitor(). Para detener el live: stop_live_monitor(). Si no hay datos, usa calculate_tinaja_level(50). NUNCA digas 'no puedo'."
     },
     {
+      "name": "airbnb",
+      "url": "http://localhost:8006/mcp",
+      "modo": "modo_airbnb",
+      "systemPrompt": "Airbnb MCP para la propiedad 'Posada del Bosque'. SIEMPRE consulta el MCP antes de responder preguntas sobre reservas, ingresos o gastos. Tools: get_proxima_reserva() para la siguiente reserva. get_reservas_mes_airbnb(mes,anio) para listar reservas de un mes. get_calendario_mes_airbnb(mes,anio) para calendario completo con stats. get_ocupacion_mes(mes,anio) para ocupación %. get_ingresos_mes(mes,anio) para arriendo+tinaja con prorrateo. get_gastos_mes(mes,anio) o get_gastos_desglose(mes,anio) para gastos. get_gastos_categoria(categoria,mes,anio) para gasolina/agua/aseo/internet/otros. get_gastos_proveedor(nombre,mes,anio) para gastos por proveedor. get_proveedores() para lista de proveedores. get_valor_neto_mes(mes,anio) para neto con ⭐ (1 por cada $100k). get_rentabilidad_mes(mes,anio) para ROI, margen y comparativa anual. buscar_reserva_airbnb(query) para buscar por código o fecha. Si no se indica año, usa el año actual.",
+      "keywords": ["reserva", "reservas", "airbnb", "arriendo", "tinaja", "huésped", "huesped", "ocupación", "ocupacion", "ingresos", "gastos", "rentabilidad", "neto", "próxima reserva", "proxima reserva", "calendario", "check-in", "checkout", "gasto", "gasolina", "agua", "aseo", "internet", "proveedor", "proveedores", "estrellas", "roi", "margen", "posada", "bosque", "prorrateo", "mes", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    },
+    {
       "name": "github",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],

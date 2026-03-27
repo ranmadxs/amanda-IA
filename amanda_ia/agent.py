@@ -6,6 +6,7 @@ import re
 import os
 import subprocess
 import time
+import unicodedata
 from pathlib import Path
 import tomllib
 
@@ -180,10 +181,20 @@ def _load_banner(name: str = "banner") -> list[str]:
     """Carga resources/{name}.txt. Si no existe, usa banner.txt por defecto."""
     try:
         path = files("amanda_ia") / "resources" / f"{name}.txt"
-        return path.read_text().strip().split("\n")
+        return path.read_text().strip("\n").split("\n")
     except Exception:
         path = files("amanda_ia") / "resources" / "banner.txt"
-        return path.read_text().strip().split("\n")
+        return path.read_text().strip("\n").split("\n")
+
+
+def _disp_width(s: str) -> int:
+    """Ancho visual de una cadena contando caracteres ambiguos (█) como 2 columnas."""
+    return sum(2 if unicodedata.east_asian_width(c) in ("W", "F", "A") else 1 for c in s)
+
+
+def _ljust_disp(s: str, width: int) -> str:
+    """Padea s con espacios hasta alcanzar el ancho visual `width`."""
+    return s + " " * max(0, width - _disp_width(s))
 
 
 def _get_header_formatted_text():
@@ -201,13 +212,14 @@ def _get_header_formatted_text():
         mcp_info = ", ".join(names) if names else get_mcp_server_info()
     tools_label = f"Ollama + {mcp_info}" if mcp_info else "Ollama + Tools"
     texts = [
-        f"  aia v{_get_version()}",
-        f"  {OLLAMA_MODEL} · {tools_label}",
-        f"  {cwd}",
+        f"aia v{_get_version()}",
+        f"{OLLAMA_MODEL} · {tools_label}",
+        f"{cwd}",
     ]
     mod = _get_mod_config()
     active_banner_lines = _load_banner(mod.get("banner", "banner")) if mod else _load_banner()
     active_color = mod.get("color", "#ff8700") if mod else "#ff8700"
+    max_icon_width = max((_disp_width(l) for l in active_banner_lines), default=0)
     lines = []
     num_lines = 5
     for i in range(num_lines):
@@ -215,9 +227,9 @@ def _get_header_formatted_text():
         txt = texts[i] if i < len(texts) else ""
         if combined_icon:
             banner_style = f"bold fg:{active_color}"
-            lines.append((banner_style, combined_icon))
+            lines.append((banner_style, _ljust_disp(combined_icon, max_icon_width)))
         if txt:
-            lines.append(("fg:ansigray", " " + txt if combined_icon else txt))
+            lines.append(("fg:ansigray", "  " + txt if combined_icon else txt))
         lines.append(("", "\n"))
     rule = "─" * 50 + "\n"
     lines.append(("fg:ansigray", rule))
@@ -697,6 +709,13 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
             _active_mode = mode_key
             _conversation_history.clear()
             label = mode_key.replace("modo_", "", 1).replace("_", " ").title()
+            return f"[dim]Modo {label} activado. Escribe 'exit' o presiona ⎋ Esc para salir.[/]"
+        import difflib
+        close = difflib.get_close_matches(mode_name, available_modes, n=1, cutoff=0.6)
+        if close:
+            _active_mode = f"modo_{close[0]}"
+            _conversation_history.clear()
+            label = close[0].replace("_", " ").title()
             return f"[dim]Modo {label} activado. Escribe 'exit' o presiona ⎋ Esc para salir.[/]"
         return f"[dim]Modo '{sub}' no existe. Modos: {', '.join(available_modes)}[/]"
 

@@ -412,7 +412,11 @@ function applyMod(mod, animate) {
   document.documentElement.style.setProperty('--accent',     mod.color);
   document.documentElement.style.setProperty('--accent-dim', mod.colorDim);
   bannerEl.textContent = mod.banner || mod.displayName;
-  subtitleEl.textContent = mod.key ? `modo ${mod.name}` : 'asistente general';
+  if (mod.key && mod.mcpServers && mod.mcpServers.length) {
+    subtitleEl.textContent = `modo ${mod.name}  ·  🟢 ${mod.mcpServers.join('  🟢 ')}`;
+  } else {
+    subtitleEl.textContent = mod.key ? `modo ${mod.name}` : 'asistente general';
+  }
   document.title = `amanda-IA · ${mod.displayName}`;
   document.querySelectorAll('.mode-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.key === mod.key)

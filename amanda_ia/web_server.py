@@ -46,6 +46,9 @@ def _load_banner(banner_name: str) -> str:
 
 
 def _all_mods_info() -> list[dict]:
+    from amanda_ia.config import get_mcp_servers_raw
+    mcp_raw = get_mcp_servers_raw()
+
     result = [{
         "name": "aia",
         "key": "",
@@ -53,15 +56,23 @@ def _all_mods_info() -> list[dict]:
         "banner": _load_banner("banner"),
         "color": "#7f8c8d",
         "colorDim": "#2c3e50",
+        "mcpServers": [],
     }]
     for m in get_mods():
+        key = m.get("key", "")
+        # Servidores MCP configurados para este modo
+        mode_mcps = [
+            s.get("name", "") for s in mcp_raw
+            if s.get("modo") == key
+        ]
         result.append({
             "name": m.get("name"),
-            "key": m.get("key", ""),
+            "key": key,
             "displayName": m.get("name", "").capitalize(),
             "banner": _load_banner(m.get("banner", "banner")),
             "color": m.get("color", "#7f8c8d"),
             "colorDim": m.get("colorDim", "#2c3e50"),
+            "mcpServers": mode_mcps,
         })
     return result
 
@@ -107,9 +118,8 @@ def _server_info() -> dict:
     except Exception:
         version = "?"
     try:
-        from amanda_ia.config import get_config
-        cfg = get_config()
-        model = cfg.get("model", "?")
+        from amanda_ia.agent import OLLAMA_MODEL
+        model = OLLAMA_MODEL
     except Exception:
         model = "?"
     return {"version": version, "model": model, "cwd": os.getcwd()}

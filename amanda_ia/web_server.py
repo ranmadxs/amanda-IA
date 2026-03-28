@@ -280,7 +280,16 @@ class _Handler(BaseHTTPRequestHandler):
         for entry in phase.get("log", [])[cursor:]:
             _sse("log", {"entry": entry})
 
-        _sse("response", {"response": _strip(result_holder[0] or "")})
+        # Si el agente llamó start_live_monitor, activar modo watch
+        pending = agent_mod._pending_live_action
+        if pending == "start":
+            agent_mod._pending_live_action = None
+            _sse("response", {"response": "__watch__"})
+        elif pending == "stop":
+            agent_mod._pending_live_action = None
+            _sse("response", {"response": _strip(result_holder[0] or "")})
+        else:
+            _sse("response", {"response": _strip(result_holder[0] or "")})
 
     def _handle_history_load(self, body: dict) -> None:
         global _web_mode

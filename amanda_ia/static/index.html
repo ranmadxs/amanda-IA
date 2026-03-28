@@ -450,6 +450,38 @@ body.ide-mode #ide-statusbar { display: flex; }
 #ide-statusbar-version { opacity: 0.9; font-size: 0.58rem; white-space: nowrap; overflow: hidden; text-overflow: clip; }
 
 /* ── Panel de tests (sidebar terminal) ──────────────────── */
+.sh-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #9b9ea3;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  user-select: none;
+  border-top: 1px solid #2a2d2e;
+}
+.sh-group-header:hover { background: #2a2d2e; color: #ccc; }
+.sh-arrow { font-size: 0.6rem; transition: transform 0.15s; display: inline-block; }
+.sh-arrow.open { transform: rotate(90deg); }
+.sh-badge { margin-left: auto; font-size: 0.85rem; line-height: 1; }
+.sh-group-body { display: flex; flex-direction: column; }
+.sh-btn {
+  padding: 0.32rem 0.8rem 0.32rem 1.8rem;
+  font-size: 0.73rem;
+  font-family: 'SF Mono','Fira Code',monospace;
+  color: #9b9ea3;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background 0.1s;
+}
+.sh-btn:hover { background: #2a2d2e; color: #d4d4d4; border-left-color: #80d740; }
+.sh-btn.running { color: #f9ca24; border-left-color: #f9ca24; }
+.sh-btn.passed  { color: #80d740; border-left-color: #80d740; }
+.sh-btn.failed  { color: #f28b82; border-left-color: #f28b82; }
+
 .test-section-label {
   font-size: 0.65rem;
   font-weight: 700;
@@ -925,16 +957,35 @@ body.ide-mode #chat-panel {
   <div id="panel-mongo" style="display:none; flex-direction:column; flex:1; overflow:hidden;">
     <div id="mongo-tree" style="overflow-y:auto;flex:1;font-size:0.78rem;"></div>
   </div>
-  <!-- Panel: Terminal (botones de tests) -->
+  <!-- Panel: Terminal (shortcuts) -->
   <div id="panel-terminal" style="display:none; flex-direction:column; flex:1; overflow:hidden;">
-    <div class="test-section-label">Ejecutar Tests</div>
-    <div id="test-run-btns">
-      <div class="test-run-btn" onclick="testRun('all')">▶ Todos los tests</div>
-      <div class="test-run-btn" onclick="testRun('verbose')">▶ Verbose (-v)</div>
-      <div class="test-run-btn" onclick="testRun('failed')">▶ Solo fallidos (--lf)</div>
-      <div class="test-run-btn" onclick="testRun('coverage')">▶ Con cobertura</div>
+    <!-- Tests colapsable -->
+    <div class="sh-group-header" onclick="shToggle('tests')">
+      <span class="sh-arrow" id="sh-arrow-tests">▶</span>
+      <span>Tests</span>
+      <span id="sh-tests-badge" class="sh-badge"></span>
     </div>
-    <div class="test-section-label" style="margin-top:0.5rem">Archivos de test</div>
+    <div id="sh-body-tests" class="sh-group-body" style="display:none">
+      <div class="sh-btn" id="shbtn-all"      onclick="testRun('all')">pytest</div>
+      <div class="sh-btn" id="shbtn-verbose"  onclick="testRun('verbose')">pytest -v</div>
+      <div class="sh-btn" id="shbtn-failed"   onclick="testRun('failed')">pytest --lf</div>
+      <div class="sh-btn" id="shbtn-coverage" onclick="testRun('coverage')">pytest --cov</div>
+    </div>
+    <!-- Git colapsable -->
+    <div class="sh-group-header" onclick="shToggle('git')">
+      <span class="sh-arrow" id="sh-arrow-git">▶</span>
+      <span>Git</span>
+    </div>
+    <div id="sh-body-git" class="sh-group-body" style="display:none">
+      <div class="sh-btn" onclick="termRun('git status')">git status</div>
+      <div class="sh-btn" onclick="termRun('git log --oneline -10')">git log</div>
+      <div class="sh-btn" onclick="termRun('git diff')">git diff</div>
+      <div class="sh-btn" onclick="termRun('git pull')">git pull</div>
+      <div class="sh-btn" onclick="termRun('git push')">git push</div>
+      <div class="sh-btn" onclick="termRun('git stash')">git stash</div>
+    </div>
+    <!-- Archivos de test -->
+    <div class="test-section-label" style="margin-top:0.3rem">Archivos</div>
     <div id="test-file-list" style="overflow-y:auto;flex:1;font-size:0.75rem;"></div>
   </div>
 </div>
@@ -1603,9 +1654,18 @@ async function termInit() {
   termUpdatePrompt();
 }
 
-function termUpdatePrompt() {
+async function termUpdatePrompt() {
   const short = _termCwd ? _termCwd.replace(/.*\/([^/]+)$/, '$1') : '~';
-  document.getElementById('term-prompt').textContent = `${short} ❯`;
+  let branch = '';
+  try {
+    const res = await fetch('/api/shell', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ cmd: 'git branch --show-current 2>/dev/null', cwd: _termCwd })
+    }).then(r => r.json());
+    if (res.returncode === 0 && res.stdout.trim()) branch = res.stdout.trim();
+  } catch(_) {}
+  const branchPart = branch ? ` <span style="color:#f9ca24">(${branch})</span>` : '';
+  document.getElementById('term-prompt').innerHTML = `<span style="color:#80d740">${short}</span>${branchPart} <span style="color:#80d740">❯</span>`;
 }
 
 async function termFocus() {
@@ -1677,6 +1737,15 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// ── Sidebar collapsibles ──────────────────────────────────────────
+function shToggle(name) {
+  const body  = document.getElementById(`sh-body-${name}`);
+  const arrow = document.getElementById(`sh-arrow-${name}`);
+  const open  = body.style.display === 'none';
+  body.style.display  = open ? 'flex' : 'none';
+  arrow.classList.toggle('open', open);
+}
+
 // ── Tests ─────────────────────────────────────────────────────────
 const _testCmds = {
   all:      'poetry run pytest',
@@ -1716,22 +1785,20 @@ async function testLoadFiles() {
 async function testRun(key) {
   const cmd = _testCmds[key];
   if (!cmd) return;
-  // Marcar botón como running
-  const btns = document.querySelectorAll('.test-run-btn');
-  btns.forEach(b => b.classList.remove('running','passed','failed'));
-  const btn = document.querySelector(`.test-run-btn[onclick="testRun('${key}')"]`);
+  const btn = document.getElementById(`shbtn-${key}`);
+  document.querySelectorAll('.sh-btn').forEach(b => b.classList.remove('running','passed','failed'));
   if (btn) btn.classList.add('running');
   await termRun(cmd);
-  // Detectar resultado por último output
-  const out = document.getElementById('term-output');
-  const text = out.textContent;
+  const tail = document.getElementById('term-output').textContent.split(cmd).pop();
+  const passed = /\d+ passed/.test(tail) && !/\d+ failed/.test(tail);
+  const failed = /\d+ failed/.test(tail);
+  const badge  = document.getElementById('sh-tests-badge');
   if (btn) {
-    const passed = /\d+ passed/.test(text) && !/\d+ failed/.test(text.split(cmd).pop());
-    const failed = /\d+ failed/.test(text.split(cmd).pop());
     btn.classList.remove('running');
-    btn.classList.toggle('passed', passed && !failed);
+    btn.classList.toggle('passed', passed);
     btn.classList.toggle('failed', failed);
   }
+  if (badge) badge.textContent = passed ? '✅' : failed ? '❌' : '';
 }
 
 async function testRunFile(file) {

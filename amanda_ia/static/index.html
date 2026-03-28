@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>amanda-IA</title>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/vs2015.min.css">
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
 <style>
 :root {
   --accent:     #7f8c8d;
@@ -426,6 +428,193 @@ body.mode-flash #banner { animation: flash .35s ease; }
   border-top: 1px solid var(--border);
 }
 #resume-close:hover { color: var(--text); }
+
+/* ── IDE layout (modo_dev) ───────────────────────────────── */
+body.ide-mode {
+  flex-direction: row;
+  overflow: hidden;
+}
+body.ide-mode #banner { display: none; }
+
+/* Activity bar */
+#ide-activity {
+  display: none;
+  width: 48px;
+  background: #333333;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 8px;
+  gap: 4px;
+  flex-shrink: 0;
+  border-right: 1px solid #252526;
+}
+body.ide-mode #ide-activity { display: flex; }
+
+.ide-act-btn {
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #858585;
+  font-size: 18px;
+  transition: color .15s, background .15s;
+  user-select: none;
+}
+.ide-act-btn:hover { color: #cccccc; background: #2a2d2e; }
+.ide-act-btn.active { color: #ffffff; border-left: 2px solid #ffffff; border-radius: 0; }
+
+/* Sidebar file tree */
+#ide-sidebar {
+  display: none;
+  width: 220px;
+  min-width: 140px;
+  max-width: 380px;
+  background: #252526;
+  flex-direction: column;
+  border-right: 1px solid #3c3c3c;
+  overflow: hidden;
+  flex-shrink: 0;
+  resize: horizontal;
+}
+body.ide-mode #ide-sidebar { display: flex; }
+#ide-sidebar-title {
+  padding: 8px 12px 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #bbbbbb;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  border-bottom: 1px solid #3c3c3c;
+}
+#file-tree {
+  overflow-y: auto;
+  flex: 1;
+  font-size: 0.78rem;
+}
+#file-tree::-webkit-scrollbar { width: 6px; }
+#file-tree::-webkit-scrollbar-thumb { background: #424242; border-radius: 3px; }
+
+.ft-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  padding-left: calc(var(--depth,0) * 14px + 8px);
+  cursor: pointer;
+  color: #cccccc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background .1s;
+  user-select: none;
+}
+.ft-item:hover  { background: #2a2d2e; }
+.ft-item.active { background: #094771; color: #fff; }
+.ft-arrow { font-size: 10px; width: 12px; flex-shrink: 0; color: #858585; }
+.ft-icon  { flex-shrink: 0; }
+.ft-name  { overflow: hidden; text-overflow: ellipsis; }
+
+/* Editor panel */
+#ide-editor {
+  display: none;
+  flex: 1;
+  flex-direction: column;
+  background: #1e1e1e;
+  overflow: hidden;
+  min-width: 0;
+}
+body.ide-mode #ide-editor { display: flex; }
+
+#editor-tabs {
+  display: flex;
+  background: #2d2d2d;
+  border-bottom: 1px solid #252526;
+  overflow-x: auto;
+  flex-shrink: 0;
+  scrollbar-width: none;
+}
+#editor-tabs::-webkit-scrollbar { display: none; }
+
+.editor-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 0.75rem;
+  color: #969696;
+  cursor: pointer;
+  white-space: nowrap;
+  border-right: 1px solid #252526;
+  transition: background .1s;
+}
+.editor-tab:hover { background: #1e1e1e; }
+.editor-tab.active { background: #1e1e1e; color: #cccccc; border-top: 1px solid #0078d4; }
+.editor-tab-close {
+  font-size: 10px; color: #858585; margin-left: 2px;
+  padding: 0 2px; border-radius: 2px;
+}
+.editor-tab-close:hover { background: #555; color: #fff; }
+
+#editor-body {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+#editor-body::-webkit-scrollbar { width: 10px; height: 10px; }
+#editor-body::-webkit-scrollbar-thumb { background: #424242; }
+#editor-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #555;
+  font-size: 0.85rem;
+  flex-direction: column;
+  gap: 8px;
+}
+#editor-code-wrap {
+  display: flex;
+  min-height: 100%;
+}
+#editor-gutter {
+  width: 50px;
+  background: #1e1e1e;
+  color: #5a5a5a;
+  font-size: 0.73rem;
+  line-height: 1.5;
+  padding: 12px 8px 12px 0;
+  text-align: right;
+  flex-shrink: 0;
+  user-select: none;
+  border-right: 1px solid #2d2d2d;
+}
+#editor-code {
+  flex: 1;
+  padding: 12px 16px;
+  font-size: 0.73rem;
+  line-height: 1.5;
+  white-space: pre;
+  color: #d4d4d4;
+  overflow: visible;
+  tab-size: 2;
+}
+
+/* Chat panel in IDE mode */
+#chat-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+}
+body.ide-mode #chat-panel {
+  width: 380px;
+  min-width: 260px;
+  max-width: 500px;
+  flex: none;
+  border-left: 1px solid #3c3c3c;
+}
 </style>
 </head>
 <body>
@@ -439,21 +628,54 @@ body.mode-flash #banner { animation: flash .35s ease; }
   </div>
 </div>
 
-<div id="header"></div>
-
-<div id="banner">
-  <pre id="banner-text"></pre>
-  <span id="banner-subtitle"></span>
-  <div id="banner-info"></div>
-  <span id="live-badge"><span id="live-dot"></span>EN VIVO · /watch para detener</span>
+<!-- IDE: Activity bar -->
+<div id="ide-activity">
+  <div class="ide-act-btn active" id="btn-explorer" title="Explorer">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+    </svg>
+  </div>
 </div>
 
-<div id="messages"></div>
+<!-- IDE: File tree sidebar -->
+<div id="ide-sidebar">
+  <div id="ide-sidebar-title">Explorer</div>
+  <div id="file-tree"></div>
+</div>
 
-<div id="input-wrap">
-  <div id="slash-menu"></div>
-  <textarea id="chat-input" rows="1" placeholder="Escribe un mensaje... (/ para comandos)"></textarea>
-  <button id="send-btn">Enviar ↵</button>
+<!-- IDE: Editor -->
+<div id="ide-editor">
+  <div id="editor-tabs"></div>
+  <div id="editor-body">
+    <div id="editor-empty">
+      <span style="font-size:2rem">📄</span>
+      <span>Selecciona un archivo</span>
+    </div>
+    <div id="editor-code-wrap" style="display:none">
+      <div id="editor-gutter"></div>
+      <pre id="editor-code"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- Chat panel (siempre visible, derecha en IDE mode) -->
+<div id="chat-panel">
+  <div id="header"></div>
+
+  <div id="banner">
+    <pre id="banner-text"></pre>
+    <span id="banner-subtitle"></span>
+    <div id="banner-info"></div>
+    <span id="live-badge"><span id="live-dot"></span>EN VIVO · /watch para detener</span>
+  </div>
+
+  <div id="messages"></div>
+
+  <div id="input-wrap">
+    <div id="slash-menu"></div>
+    <textarea id="chat-input" rows="1" placeholder="Escribe un mensaje... (/ para comandos)"></textarea>
+    <button id="send-btn">Enviar ↵</button>
+  </div>
 </div>
 
 <script>
@@ -544,6 +766,10 @@ function applyMod(mod, animate) {
     void document.body.offsetWidth;
     document.body.classList.add('mode-flash');
   }
+  // IDE mode: activar/desactivar layout
+  const isIde = mod.key === 'modo_dev';
+  document.body.classList.toggle('ide-mode', isIde);
+  if (isIde) ideInit();
 }
 
 // ── Live Monitor (/watch) ─────────────────────────────────────────
@@ -990,6 +1216,148 @@ document.addEventListener('mousedown', e => {
 });
 
 sendBtn.addEventListener('click', send);
+
+// ── IDE ───────────────────────────────────────────────────────────
+let _ideRoot = null;       // ruta raíz cargada
+let _openTabs = [];        // [{path, name, ext, content}]
+let _activeTab = null;
+let _expandedDirs = new Set();
+
+async function ideInit() {
+  if (_ideRoot) { ideRenderTree(_ideRoot); return; }
+  const info = await fetch('/api/info').then(r => r.json()).catch(() => ({}));
+  _ideRoot = info.cwd || '/';
+  ideLoadDir(_ideRoot, document.getElementById('file-tree'), 0, true);
+}
+
+async function ideLoadDir(path, container, depth, replace) {
+  const data = await fetch(`/api/files?path=${encodeURIComponent(path)}`).then(r=>r.json()).catch(()=>({entries:[]}));
+  const entries = data.entries || [];
+  if (replace) container.innerHTML = '';
+
+  for (const e of entries) {
+    if (e.name.startsWith('.') && depth === 0) continue; // ocultar dotfiles en raíz
+
+    const row = document.createElement('div');
+    row.className = 'ft-item';
+    row.style.setProperty('--depth', depth);
+    row.dataset.path = e.path;
+    row.dataset.isdir = e.isDir;
+
+    const arrow = document.createElement('span');
+    arrow.className = 'ft-arrow';
+    arrow.textContent = e.isDir ? (_expandedDirs.has(e.path) ? '▼' : '▶') : '';
+
+    const icon = document.createElement('span');
+    icon.className = 'ft-icon';
+    icon.textContent = e.isDir ? '📁' : _fileIcon(e.ext);
+
+    const name = document.createElement('span');
+    name.className = 'ft-name';
+    name.textContent = e.name;
+
+    row.appendChild(arrow);
+    row.appendChild(icon);
+    row.appendChild(name);
+    container.appendChild(row);
+
+    if (e.isDir) {
+      const sub = document.createElement('div');
+      sub.id = 'ft-sub-' + btoa(e.path).replace(/[^a-z0-9]/gi, '');
+      container.appendChild(sub);
+      if (_expandedDirs.has(e.path)) {
+        ideLoadDir(e.path, sub, depth + 1, true);
+      }
+      row.addEventListener('click', () => ideToggleDir(e.path, sub, arrow, depth + 1));
+    } else {
+      row.addEventListener('click', () => { ideOpenFile(e.path, e.name, e.ext); ideSetActive(row); });
+    }
+  }
+}
+
+function ideToggleDir(path, sub, arrow, childDepth) {
+  if (_expandedDirs.has(path)) {
+    _expandedDirs.delete(path);
+    sub.innerHTML = '';
+    arrow.textContent = '▶';
+  } else {
+    _expandedDirs.add(path);
+    arrow.textContent = '▼';
+    ideLoadDir(path, sub, childDepth, true);
+  }
+}
+
+function ideSetActive(row) {
+  document.querySelectorAll('.ft-item.active').forEach(r => r.classList.remove('active'));
+  row.classList.add('active');
+}
+
+function _fileIcon(ext) {
+  const m = { py:'🐍', js:'📜', ts:'📘', json:'📋', md:'📝', html:'🌐', css:'🎨',
+               toml:'⚙️', yaml:'⚙️', yml:'⚙️', sh:'🖥️', txt:'📄', lock:'🔒', env:'🔑' };
+  return m[ext] || '📄';
+}
+
+async function ideOpenFile(path, name, ext) {
+  // Si ya está abierto, activar tab
+  const existing = _openTabs.findIndex(t => t.path === path);
+  if (existing >= 0) { ideActivateTab(existing); return; }
+
+  const data = await fetch(`/api/file?path=${encodeURIComponent(path)}`).then(r=>r.json()).catch(()=>null);
+  if (!data || data.error) return;
+
+  _openTabs.push({ path, name, ext, content: data.content });
+  ideActivateTab(_openTabs.length - 1);
+}
+
+function ideActivateTab(idx) {
+  _activeTab = idx;
+  const tab = _openTabs[idx];
+
+  // Render tabs bar
+  const tabsEl = document.getElementById('editor-tabs');
+  tabsEl.innerHTML = '';
+  _openTabs.forEach((t, i) => {
+    const el = document.createElement('div');
+    el.className = 'editor-tab' + (i === idx ? ' active' : '');
+    el.innerHTML = `<span>${_fileIcon(t.ext)} ${t.name}</span>`
+      + `<span class="editor-tab-close" data-idx="${i}">✕</span>`;
+    el.addEventListener('click', e => {
+      if (e.target.dataset.idx !== undefined) { ideCloseTab(+e.target.dataset.idx); return; }
+      ideActivateTab(i);
+    });
+    tabsEl.appendChild(el);
+  });
+
+  // Render editor content
+  const empty = document.getElementById('editor-empty');
+  const wrap  = document.getElementById('editor-code-wrap');
+  const gutter = document.getElementById('editor-gutter');
+  const code  = document.getElementById('editor-code');
+  empty.style.display = 'none';
+  wrap.style.display = 'flex';
+
+  // Syntax highlight
+  const hl = hljs.getLanguage(tab.ext) ? tab.ext : 'plaintext';
+  const highlighted = hljs.highlight(tab.content, { language: hl, ignoreIllegals: true }).value;
+  code.innerHTML = highlighted;
+
+  // Line numbers
+  const lines = tab.content.split('\n');
+  gutter.innerHTML = lines.map((_, i) => `<div>${i + 1}</div>`).join('');
+}
+
+function ideCloseTab(idx) {
+  _openTabs.splice(idx, 1);
+  if (_openTabs.length === 0) {
+    _activeTab = null;
+    document.getElementById('editor-tabs').innerHTML = '';
+    document.getElementById('editor-empty').style.display = 'flex';
+    document.getElementById('editor-code-wrap').style.display = 'none';
+  } else {
+    ideActivateTab(Math.min(idx, _openTabs.length - 1));
+  }
+}
 
 // ── Resume ───────────────────────────────────────────────────────
 const resumeOverlay = document.getElementById('resume-overlay');

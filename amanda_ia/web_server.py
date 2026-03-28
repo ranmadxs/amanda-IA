@@ -193,6 +193,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_image()
         elif path == "/api/history":
             self._send_json(_history_mod.list_all(_web_mode or ""))
+        elif path == "/api/files":
+            self._handle_files()
+        elif path == "/api/file":
+            self._handle_file_content()
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -290,6 +294,45 @@ class _Handler(BaseHTTPRequestHandler):
             _sse("response", {"response": _strip(result_holder[0] or "")})
         else:
             _sse("response", {"response": _strip(result_holder[0] or "")})
+
+    def _handle_files(self) -> None:
+        from urllib.parse import parse_qs, urlparse
+        qs = parse_qs(urlparse(self.path).query)
+        dir_path = qs.get("path", [""])[0] or str(Path.cwd())
+        p = Path(dir_path)
+        if not p.is_dir():
+            self._send_json({"error": "not a directory"}, 400)
+            return
+        try:
+            entries = []
+            items = sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+            for child in items:
+                entries.append({
+                    "name": child.name,
+                    "path": str(child),
+                    "isDir": child.is_dir(),
+                    "ext": child.suffix.lstrip(".").lower() if child.is_file() else "",
+                })
+            self._send_json({"path": str(p), "entries": entries})
+        except PermissionError:
+            self._send_json({"error": "permission denied"}, 403)
+
+    def _handle_file_content(self) -> None:
+        from urllib.parse import parse_qs, urlparse
+        qs = parse_qs(urlparse(self.path).query)
+        file_path = qs.get("path", [""])[0]
+        p = Path(file_path)
+        if not p.is_file():
+            self._send_json({"error": "not a file"}, 404)
+            return
+        try:
+            if p.stat().st_size > 500_000:
+                self._send_json({"error": "file too large"}, 413)
+                return
+            content = p.read_text(encoding="utf-8", errors="replace")
+            self._send_json({"path": str(p), "content": content, "ext": p.suffix.lstrip(".").lower()})
+        except PermissionError:
+            self._send_json({"error": "permission denied"}, 403)
 
     def _handle_history_load(self, body: dict) -> None:
         global _web_mode

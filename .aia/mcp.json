@@ -3,6 +3,7 @@
     {
       "name": "mongodb",
       "command": "npx",
+      "modo": "modo_dev",      
       "args": ["-y", "mongodb-mcp-server@latest"],
       "env": {
         "MDB_MCP_CONNECTION_STRING": "${MONGODB_URI}"
@@ -13,9 +14,10 @@
     },
     {
       "name": "temperatura",
-      "url": "http://localhost:8001/mcp",
-      "keywords": ["temperatura", "clima", "ciudad", "tiempo", "grados", "°C", "qué temperatura", "cómo está el clima", "hace calor", "hace frío", "hace frio", "temperatura actual", "qué tiempo hace", "que tiempo hace", "pronóstico", "pronostico", "cuántos grados", "cuantos grados", "está lloviendo", "esta lloviendo"],
-      "systemPrompt": "Temperatura/clima: USA get_temperature(city=\"nombre_ciudad\"). Ej: Santiago → city=\"Santiago\". Ejecuta YA. NUNCA digas 'no está disponible'."
+      "command": "npx",
+      "args": ["-y", "@dangahagan/weather-mcp@latest"],
+      "keywords": ["temperatura", "clima", "ciudad", "tiempo", "grados", "°C", "qué temperatura", "cómo está el clima", "hace calor", "hace frío", "hace frio", "temperatura actual", "qué tiempo hace", "que tiempo hace", "pronóstico", "pronostico", "cuántos grados", "cuantos grados", "está lloviendo", "esta lloviendo", "lluvia", "viento", "humedad", "forecast"],
+      "systemPrompt": "Clima/temperatura: usa las tools disponibles con location=\"ciudad, país\" en inglés. Ej: Santiago → \"Santiago, Chile\". Buenos Aires → \"Buenos Aires, Argentina\". Responde en español con unidades métricas (°C, km/h). Ejecuta YA sin preguntar."
     },
     {
       "name": "wahapedia",
@@ -44,8 +46,8 @@
     {
       "name": "charts",
       "url": "http://localhost:8007/mcp",
-      "modo": "modo_airbnb",
-      "systemPrompt": "Charts MCP: genera gráficos financieros inline. Úsalo cuando el usuario pida 'grafico', 'gráfico', 'chart', 'visualizar', 'graficame'. Tools: grafico_gastos_mes(mes,anio) para barras de gastos por categoría. grafico_comparar_meses(meses,anio) donde meses='1,2,3' para comparar varios meses apilados. grafico_rentabilidad_mes(mes,anio) para ingresos vs gastos vs neto. SIEMPRE llama el tool cuando el usuario pida visualización.",
+      "modo": "modo_airbnb,modo_monitor",
+      "systemPrompt": "Charts MCP: genera gráficos inline. Úsalo cuando el usuario pida 'grafico', 'gráfico', 'chart', 'visualizar', 'graficame'. Tools específicos Airbnb: grafico_gastos_mes(mes,anio), grafico_comparar_meses(meses,anio), grafico_rentabilidad_mes(mes,anio). Tool GENÉRICO para cualquier modo: grafico_generico(titulo, labels, valores, tipo='bar'|'line', unidad='', color='#3498db') donde labels y valores son strings separados por coma. Ej: grafico_generico('Nivel agua', '10:00,10:01,10:02', '80.5,79.3,78.1', tipo='line', unidad='L'). SIEMPRE obtén los datos del MCP correspondiente PRIMERO, luego llama grafico_generico con esos datos.",
       "keywords": ["grafico", "gráfico", "chart", "graficame", "visualizar", "mostrar grafico", "mostrar gráfico", "ver grafico", "barras", "comparar meses"]
     },
     {

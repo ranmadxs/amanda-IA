@@ -31,17 +31,19 @@ _lock = threading.Lock()
 # Modo activo en la sesión web (None = modo general AiA)
 _web_mode: str | None = None
 
-_RICH_RE = re.compile(r"\[/?[^\]]*\]")
+_RICH_RE = re.compile(r"\[/?(?!AIA_IMG:)[^\]]*\]")  # excluye [AIA_IMG:...]
 _IMG_RE = re.compile(r"\[AIA_IMG:[^\]]+\]")
 
 
 def _strip(text: str) -> str:
     import urllib.parse
+    # 1. Quitar Rich markup (no toca [AIA_IMG:...])
+    text = _RICH_RE.sub("", text)
+    # 2. Convertir rutas de imagen a URLs del endpoint
     def _img_to_url(m: re.Match) -> str:
         img_path = m.group(0)[9:-1]  # extrae path de [AIA_IMG:path]
         return f"[AIA_IMG:/api/image?path={urllib.parse.quote(img_path)}]"
-    text = _IMG_RE.sub(_img_to_url, text)
-    return _RICH_RE.sub("", text).strip()
+    return _IMG_RE.sub(_img_to_url, text).strip()
 
 
 def _load_banner(banner_name: str) -> str:

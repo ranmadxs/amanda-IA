@@ -72,6 +72,29 @@
       "systemPrompt": "Shell: usa run_command(command, cwd) para ejecutar comandos. Siempre pasa cwd con ruta absoluta. Para git info: run_command('git tag', cwd=...), run_command('git log v1.0..v2.0 --oneline', cwd=...). Cuando el output de run_command son datos que necesitas para crear un archivo, úsalos INMEDIATAMENTE con write_file del servidor filesystem — NUNCA preguntes al usuario qué hacer con el resultado. NUNCA ejecutes comandos destructivos sin confirmar."
     },
     {
+      "name": "sequential-thinking",
+      "command": "npx",
+      "modo": "ALL",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+      "global": true,
+      "enabled": true,
+      "keywords": ["planear", "plan", "diseñar", "refactorizar", "implementar", "arquitectura", "complejo", "paso a paso", "analizar", "estrategia", "antes de empezar"],
+      "systemPrompt": "Sequential Thinking: úsalo para tareas complejas que requieran planificación antes de ejecutar. Razona paso a paso antes de usar otros MCPs o escribir código."
+    },
+    {
+      "name": "memory",
+      "modo": "ALL",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "env": {
+        "MEMORY_FILE_PATH": "${workspaceFolder}/.aia/memory/graph.json"
+      },
+      "global": true,
+      "enabled": true,
+      "keywords": ["recuerda", "recuerdo", "memoriza", "contexto", "preferencia", "no olvides", "guarda esto", "qué recuerdas", "que recuerdas"],
+      "systemPrompt": "Memory MCP: persiste contexto entre sesiones. Usa search_nodes al inicio para recuperar contexto relevante. Usa create_entities/add_observations para guardar decisiones, preferencias y contexto técnico importante."
+    },
+    {
       "name": "filesystem",
       "command": "npx",
       "args": [

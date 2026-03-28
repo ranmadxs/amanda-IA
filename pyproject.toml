@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "amanda-IA"
-version = "1.2.0-aia"
+version = "1.7.0"
 description = "Agente IA tipo Claude Code"
 authors = ["Edgar"]
 readme = "README.md"

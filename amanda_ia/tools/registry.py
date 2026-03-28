@@ -1,6 +1,7 @@
 """Registro y ejecución de tools."""
 
 import logging
+from typing import Callable
 
 from amanda_ia.tools import builtin
 from amanda_ia.config import get_tools_config
@@ -13,6 +14,20 @@ log = logging.getLogger(__name__)
 BUILTIN_REGISTRY = {
     "get_time": builtin.get_time,
 }
+
+# Callback opcional: agent.py lo setea al inicio de process() para loguear calls en tiempo real
+_on_tool_call: Callable[[str, dict], None] | None = None
+_on_tool_result: Callable[[str, str], None] | None = None
+
+
+def set_tool_hooks(
+    on_call: Callable[[str, dict], None] | None,
+    on_result: Callable[[str, str], None] | None,
+) -> None:
+    """Registra callbacks invocados antes y después de cada tool. Llamar desde agent.process()."""
+    global _on_tool_call, _on_tool_result
+    _on_tool_call = on_call
+    _on_tool_result = on_result
 
 def _mcp_has_tool(name: str) -> bool:
     """True si la tool está en MCP. Usa el tool_map_cache que se actualiza por modo."""
@@ -47,10 +62,14 @@ def get_tools(server_names: list[str] | None = None):
 def execute_tool(name: str, arguments: dict) -> str:
     """Ejecuta una tool por nombre. MCP primero, luego builtin (si configurada)."""
     if _mcp_has_tool(name):
+        if _on_tool_call:
+            _on_tool_call(name, arguments)
         result = call_mcp_tool(name, arguments)
-        if result is not None:
-            return result
-        return "Error: MCP no disponible para esta tool"
+        if result is None:
+            result = "Error: MCP no disponible para esta tool"
+        if _on_tool_result:
+            _on_tool_result(name, result)
+        return result
     fn = BUILTIN_REGISTRY.get(name)
     if not fn:
         return f"Error: tool '{name}' no encontrada"

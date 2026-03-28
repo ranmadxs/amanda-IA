@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import amanda_ia.agent as agent_mod
-from amanda_ia.agent import process
+from amanda_ia.agent import process, request_interrupt
 from amanda_ia.config import get_mods, get_mods_raw, server_in_modo
 import amanda_ia.history as _history_mod
 
@@ -32,7 +32,7 @@ _lock = threading.Lock()
 # Modo activo en la sesión web (None = modo general AiA)
 _web_mode: str | None = None
 
-_RICH_RE = re.compile(r"\[/?(?!AIA_IMG:)[^\]]*\]")  # excluye [AIA_IMG:...]
+_RICH_RE = re.compile(r"\[/?(?!AIA_IMG:|AIA_FILE:)[^\]]*\]")  # excluye [AIA_IMG:...] y [AIA_FILE:...]
 _IMG_RE = re.compile(r"\[AIA_IMG:[^\]]+\]")
 
 
@@ -233,6 +233,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_file_save(self._read_json())
         elif path == "/api/feedback":
             self._handle_feedback(self._read_json())
+        elif path == "/api/interrupt":
+            self._handle_interrupt(self._read_json())
         elif path == "/api/mcp/call":
             self._handle_mcp_call(self._read_json())
         else:
@@ -299,6 +301,11 @@ class _Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_json({"ok": False, "error": str(e)})
 
+    def _handle_interrupt(self, body: dict) -> None:
+        reason = (body or {}).get("reason", "user")
+        request_interrupt(reason)
+        self._send_json({"ok": True})
+
     def _handle_mode(self, body: dict) -> None:
         global _web_mode
         key = body.get("mode", "").strip()
@@ -341,15 +348,29 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
+        client_gone = threading.Event()
+
         def _sse(event: str, data: dict) -> None:
             try:
                 msg = f"event: {event}\ndata: {json.dumps(data)}\n\n"
                 self.wfile.write(msg.encode())
                 self.wfile.flush()
             except OSError:
-                pass
+                # Cliente desconectado — solicitar interrupción al agente
+                client_gone.set()
+                request_interrupt("client disconnected")
 
-        phase: dict = {"value": "", "log": []}
+        # Lista que despierta al SSE thread inmediatamente cuando se añade una entrada
+        class _NotifyList(list):
+            def __init__(self):
+                super().__init__()
+                self._event = threading.Event()
+            def append(self, item):
+                super().append(item)
+                self._event.set()
+
+        log_list = _NotifyList()
+        phase: dict = {"value": "", "log": log_list}
         result_holder: list = [None]
         done = threading.Event()
 
@@ -359,20 +380,36 @@ class _Handler(BaseHTTPRequestHandler):
                     agent_mod._active_mode = _web_mode
                 result_holder[0] = process(text, phase=phase)
             done.set()
+            log_list._event.set()  # despertar el SSE thread si está esperando
 
         threading.Thread(target=_run, daemon=True).start()
 
         cursor = 0
-        while not done.is_set():
-            logs = phase.get("log", [])
-            while cursor < len(logs):
-                _sse("log", {"entry": logs[cursor]})
+        while not done.is_set() or cursor < len(log_list):
+            if client_gone.is_set():
+                break
+            while cursor < len(log_list):
+                _sse("log", {"entry": log_list[cursor]})
                 cursor += 1
-            done.wait(0.1)
+            if not done.is_set():
+                log_list._event.wait(timeout=5.0)  # espera hasta nueva entrada o timeout
+                log_list._event.clear()
 
-        # flush logs restantes
-        for entry in phase.get("log", [])[cursor:]:
+        if client_gone.is_set():
+            return  # cliente ya no escucha, no enviar nada más
+
+        # flush por si quedó algo (no debería con _NotifyList, pero por seguridad)
+        import logging as _logging
+        _logging.getLogger("aia").debug("SSE flush cursor=%d total_log=%d", cursor, len(log_list))
+        for entry in log_list[cursor:]:
             _sse("log", {"entry": entry})
+
+        # Si el agente fue interrumpido, enviar mensaje de interrupción
+        result = result_holder[0] or ""
+        if result.startswith("__interrupted__:"):
+            reason = result[len("__interrupted__:"):]
+            _sse("response", {"response": f"❗ {reason}", "interrupted": True})
+            return
 
         # Si el agente llamó start_live_monitor, activar modo watch
         pending = agent_mod._pending_live_action
@@ -381,9 +418,9 @@ class _Handler(BaseHTTPRequestHandler):
             _sse("response", {"response": "__watch__"})
         elif pending == "stop":
             agent_mod._pending_live_action = None
-            _sse("response", {"response": _strip(result_holder[0] or "")})
+            _sse("response", {"response": _strip(result)})
         else:
-            _sse("response", {"response": _strip(result_holder[0] or "")})
+            _sse("response", {"response": _strip(result)})
 
     def _handle_files(self) -> None:
         from urllib.parse import parse_qs, urlparse
@@ -703,6 +740,14 @@ class _Handler(BaseHTTPRequestHandler):
 class _Server(socketserver.ThreadingMixIn, HTTPServer):
     """HTTP multihilo con daemon_threads para que Ctrl+C lo mate limpio."""
     daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        import sys
+        exc = sys.exc_info()[1]
+        # Ignorar desconexiones normales del cliente (tab cerrado, AbortController, etc.)
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError, ConnectionAbortedError)):
+            return
+        super().handle_error(request, client_address)
 
 
 def run_web(host: str = "0.0.0.0", port: int = 8080) -> None:

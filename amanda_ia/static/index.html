@@ -161,6 +161,7 @@ body {
   background: var(--accent-dim);
   border: 1px solid var(--accent);
   border-bottom-right-radius: 3px;
+  color: var(--text);
 }
 .msg.ai .msg-bubble {
   background: var(--bg-msg-ai);
@@ -199,6 +200,15 @@ body {
 .fb-btn.selected-up   { background: #1a3a1a; border-color: #4caf50; color: #4caf50; }
 .fb-btn.selected-down { background: #3a1a1a; border-color: #f44336; color: #f44336; }
 .fb-btn:disabled { cursor: default; opacity: 0.7; }
+
+.msg-timing {
+  display: block;
+  text-align: right;
+  font-size: 0.67rem;
+  color: var(--text-dim);
+  margin-top: 0.3rem;
+  letter-spacing: 0.03em;
+}
 
 /* system notice */
 .msg-system {
@@ -1059,21 +1069,51 @@ body.ide-mode #ide-editor { display: flex; }
   user-select: none;
   border-right: 1px solid #2d2d2d;
 }
-#editor-code {
+#editor-hl-wrap {
+  position: relative;
   flex: 1;
+  overflow: auto;
+}
+#editor-highlight {
+  margin: 0;
   padding: 12px 16px;
   font-size: 0.73rem;
   line-height: 1.5;
   white-space: pre;
-  color: #d4d4d4;
-  overflow: visible;
   tab-size: 2;
+  font-family: inherit;
+  background: transparent;
+  pointer-events: none;
+  min-width: 100%;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+#editor-highlight code {
+  font: inherit;
+  background: none;
+  padding: 0;
+  white-space: inherit;
+}
+#editor-code {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  padding: 12px 16px;
+  font-size: 0.73rem;
+  line-height: 1.5;
+  white-space: pre;
+  tab-size: 2;
+  font-family: inherit;
+  color: transparent;
+  caret-color: #d4d4d4;
   background: transparent;
   border: none;
   outline: none;
   resize: none;
-  font-family: inherit;
-  caret-color: #d4d4d4;
+  overflow: hidden;
+  box-sizing: border-box;
+  z-index: 1;
 }
 #editor-toolbar {
   display: none;
@@ -1695,7 +1735,10 @@ body.ide-mode.settings-active #ide-terminal    { display: none !important; }
     </div>
     <div id="editor-code-wrap" style="display:none">
       <div id="editor-gutter"></div>
-      <textarea id="editor-code" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+      <div id="editor-hl-wrap">
+        <pre id="editor-highlight" aria-hidden="true"><code id="editor-hl-code"></code></pre>
+        <textarea id="editor-code" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+      </div>
     </div>
   </div>
 </div>
@@ -2066,37 +2109,22 @@ function addFeedbackBar(wrap, question, answerFn, planFn) {
 }
 
 /// Rellena un elemento .msg-bubble con texto, imágenes [AIA_IMG:url] y archivos [AIA_FILE:/path]
-function fillBubble(el, text) {
+function fillBubble(el, text, isAi = false) {
   const TOKEN_RE = /\[AIA_IMG:([^\]]+)\]|\[AIA_FILE:([^\]]+)\]/g;
   const isIde    = document.body.classList.contains('ide-mode');
-  const hasFile  = isIde && /\[AIA_FILE:/.test(text);
   el.innerHTML   = '';
 
-  // En ide-mode con archivo: texto colapsado, chip prominente
-  if (hasFile) {
-    const details = document.createElement('details');
-    details.style.cssText = 'margin-bottom:0.35rem;';
-    const summary = document.createElement('summary');
-    summary.style.cssText = 'cursor:pointer;color:var(--text-dim);font-size:0.73rem;user-select:none;list-style:none;display:flex;align-items:center;gap:4px;';
-    summary.innerHTML = '<span style="font-size:.6rem;transition:transform .15s">▶</span> ver respuesta';
-    details.addEventListener('toggle', () => {
-      summary.querySelector('span').style.transform = details.open ? 'rotate(90deg)' : '';
-    });
-    details.appendChild(summary);
-    const textWrap = document.createElement('div');
-    textWrap.style.cssText = 'margin-top:0.4rem;white-space:pre-wrap;';
-    details.appendChild(textWrap);
-    el.appendChild(details);
-
+  // Función auxiliar: renderiza tokens (img + file chips) en un contenedor
+  function _renderTokens(container, raw, chipsTarget) {
     let last = 0, m;
     TOKEN_RE.lastIndex = 0;
-    while ((m = TOKEN_RE.exec(text)) !== null) {
-      if (m.index > last) textWrap.appendChild(document.createTextNode(text.slice(last, m.index)));
+    while ((m = TOKEN_RE.exec(raw)) !== null) {
+      if (m.index > last) container.appendChild(document.createTextNode(raw.slice(last, m.index)));
       if (m[1]) {
         const img = document.createElement('img');
         img.src = m[1];
         img.style.cssText = 'max-width:100%;border-radius:6px;margin-top:0.4rem;display:block';
-        textWrap.appendChild(img);
+        container.appendChild(img);
       } else if (m[2]) {
         const path  = m[2].trim();
         const fname = path.split('/').pop();
@@ -2106,42 +2134,42 @@ function fillBubble(el, text) {
         chip.textContent = _fileIcon(ext) + ' ' + fname;
         chip.title = path;
         chip.onclick = () => ideOpenAndSelect(path, fname, ext);
-        el.appendChild(chip); // chip fuera del details, siempre visible
+        (chipsTarget || container).appendChild(chip);
         setTimeout(() => ideOpenAndSelect(path, fname, ext), 100);
       }
       last = m.index + m[0].length;
     }
-    if (last < text.length) textWrap.appendChild(document.createTextNode(text.slice(last)));
+    if (last < raw.length) container.appendChild(document.createTextNode(raw.slice(last)));
+  }
+
+  // En ide-mode: colapsar solo respuestas de la IA en un <details> estilo "Respuesta"
+  if (isIde && isAi) {
+    const details = document.createElement('details');
+    details.style.cssText = 'margin-bottom:0.35rem;';
+    const summary = document.createElement('summary');
+    summary.style.cssText = 'cursor:pointer;color:var(--text-dim);font-size:0.73rem;user-select:none;list-style:none;display:flex;align-items:center;gap:4px;';
+    const arrow = document.createElement('span');
+    arrow.style.cssText = 'font-size:.6rem;transition:transform .15s';
+    arrow.textContent = '▶';
+    summary.appendChild(arrow);
+    summary.appendChild(document.createTextNode(' Respuesta'));
+    details.addEventListener('toggle', () => {
+      arrow.style.transform = details.open ? 'rotate(90deg)' : '';
+    });
+    details.appendChild(summary);
+    const textWrap = document.createElement('div');
+    textWrap.style.cssText = 'margin-top:0.4rem;white-space:pre-wrap;';
+    details.appendChild(textWrap);
+    el.appendChild(details);
+    _renderTokens(textWrap, text, el); // file chips van fuera del details (siempre visibles)
     return;
   }
 
-  // Modo normal (no ide-mode o sin archivos)
-  let last = 0, m;
-  while ((m = TOKEN_RE.exec(text)) !== null) {
-    if (m.index > last) el.appendChild(document.createTextNode(text.slice(last, m.index)));
-    if (m[1]) {
-      const img = document.createElement('img');
-      img.src = m[1];
-      img.style.cssText = 'max-width:100%;border-radius:6px;margin-top:0.4rem;display:block';
-      el.appendChild(img);
-    } else if (m[2]) {
-      const path  = m[2].trim();
-      const fname = path.split('/').pop();
-      const ext   = fname.includes('.') ? fname.split('.').pop().toLowerCase() : '';
-      const chip  = document.createElement('span');
-      chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;background:#0d2137;border:1px solid #0078d4;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.82em;color:#4fc3f7;margin:0 2px;';
-      chip.textContent = _fileIcon(ext) + ' ' + fname;
-      chip.title = path;
-      chip.onclick = () => ideOpenAndSelect(path, fname, ext);
-      el.appendChild(chip);
-      setTimeout(() => ideOpenAndSelect(path, fname, ext), 100);
-    }
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) el.appendChild(document.createTextNode(text.slice(last)));
+  // Modo normal (no ide-mode)
+  _renderTokens(el, text, null);
 }
 
-function addMsg(role, text) {
+function addMsg(role, text, startTime) {
   if (role === 'user') _lastUserText = text;
   const wrap = document.createElement('div');
   wrap.className = `msg ${role}`;
@@ -2150,7 +2178,8 @@ function addMsg(role, text) {
   label.textContent = role === 'user' ? 'tú' : (currentMod?.displayName || 'AiA');
   const bubble = document.createElement('div');
   bubble.className = 'msg-bubble';
-  fillBubble(bubble, text);
+  fillBubble(bubble, text, role === 'ai');
+  if (role === 'ai' && startTime) _addTimingBadge(bubble, startTime);
   wrap.appendChild(label);
   wrap.appendChild(bubble);
   if (role === 'ai') addFeedbackBar(wrap, _lastUserText, () => bubble.textContent);
@@ -2176,8 +2205,21 @@ function planToMermaid(planText) {
   return `flowchart LR\n${nodes}\n${edges}`;
 }
 
+function _fmtElapsed(ms) {
+  if (ms < 1000) return ms + 'ms';
+  const s = (ms / 1000).toFixed(1);
+  return s + 's';
+}
+
+function _addTimingBadge(bubble, startTime) {
+  const el = document.createElement('span');
+  el.className = 'msg-timing';
+  el.textContent = '⏱ ' + _fmtElapsed(Date.now() - startTime);
+  bubble.appendChild(el);
+}
+
 // Crea el wrapper AI con panel de logs en vivo. Devuelve { wrap, appendLog, finalize }.
-function createLiveAiMsg() {
+function createLiveAiMsg(startTime) {
   const _question = _lastUserText;
   const wrap = document.createElement('div');
   wrap.className = 'msg ai';
@@ -2250,6 +2292,52 @@ function createLiveAiMsg() {
       if (m) servers.add(m[1]);
     }
 
+    // En ide-mode: expandir carpeta en el tree si el paso es list_directory
+    if (cls === 'log-mcp' && document.body.classList.contains('ide-mode')) {
+      const mDir = entry.match(/list_directory\s*\(\s*path\s*=\s*['"]([^'"]+)['"]/);
+      if (mDir) {
+        const dirPath = mDir[1];
+        ideSwitchPanel('explorer');
+        ideExpandDir(dirPath);
+      }
+    }
+
+    // En ide-mode: abrir archivo inmediatamente si el paso es una lectura de archivo
+    if (cls === 'log-mcp' && document.body.classList.contains('ide-mode')) {
+      let filePath = null;
+      // read_text_file / read_file / get_file_contents (path='...')
+      const mPath = entry.match(/(?:read_text_file|read_file|get_file_contents|read)\s*\(\s*path\s*=\s*['"]([^'"]+)['"]/);
+      if (mPath) filePath = mPath[1];
+      // read_multiple_files (paths=['path1', ...]) — abre el primero
+      if (!filePath) {
+        const mPaths = entry.match(/read_multiple_files\s*\(\s*paths\s*=\s*\[['"]([^'"]+)['"]/);
+        if (mPaths) filePath = mPaths[1];
+      }
+      // run_command(command='cat /path ...') o head/tail/less/bat
+      if (!filePath) {
+        const mCmd = entry.match(/run_command\s*\(\s*command\s*=\s*['"](?:cat|head|tail|less|bat)\s+([^\s'"]+)/);
+        if (mCmd) filePath = mCmd[1];
+      }
+      if (filePath) {
+        const fname = filePath.split('/').pop();
+        const ext   = fname.includes('.') ? fname.split('.').pop().toLowerCase() : '';
+        // Intentar abrir el archivo — solo interrumpir si el fetch tiene éxito
+        fetch(`/api/file?path=${encodeURIComponent(filePath)}`)
+          .then(r => r.json())
+          .then(data => {
+            if (!data || data.error) return; // path incorrecto o acceso denegado — no interrumpir
+            // Archivo existe: interrumpir LLM, abrir en editor
+            if (window._chatSoftInterrupt) window._chatSoftInterrupt('Archivo abierto en editor: ' + fname);
+            ideSwitchPanel('explorer');
+            const existing = _openTabs.findIndex(t => t.path === filePath);
+            if (existing >= 0) { ideActivateTab(existing); }
+            else { _openTabs.push({ path: filePath, name: fname, ext, content: data.content }); ideActivateTab(_openTabs.length - 1); }
+            ideSelectInTree(filePath);
+          })
+          .catch(() => {});
+      }
+    }
+
     if (cls === 'log-plan') {
       const mermaidDef = planToMermaid(entry);
       if (mermaidDef) {
@@ -2290,7 +2378,8 @@ function createLiveAiMsg() {
     if (count === 0) details.remove();
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
-    fillBubble(bubble, text);
+    fillBubble(bubble, text, true);
+    if (startTime) _addTimingBadge(bubble, startTime);
     wrap.appendChild(bubble);
     addFeedbackBar(wrap, _question, () => bubble.textContent, () => _planEntries);
     scrollDown();
@@ -2346,13 +2435,39 @@ async function send() {
   _historyIdx = -1;
   addMsg('user', text);
 
+  const _sendStart = Date.now();
   let liveMsg = null;
+  let _chatAbortController = new AbortController();
+  let _chatAbortReason = null;  // { reason, display } cuando se interrumpe
+
+  // Interrupción dura: mata el SSE fetch (ESC key)
+  window._chatAbort = (reason, display) => {
+    if (!busy) return;
+    _chatAbortReason = { reason, display };
+    fetch('/api/interrupt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason })
+    }).catch(() => {});
+    _chatAbortController.abort();
+  };
+
+  // Interrupción suave: solo señaliza al backend, el SSE sigue hasta que el backend termina limpio
+  window._chatSoftInterrupt = (reason) => {
+    if (!busy) return;
+    fetch('/api/interrupt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason })
+    }).catch(() => {});
+  };
 
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text })
+      body: JSON.stringify({ text }),
+      signal: _chatAbortController.signal
     });
 
     // ── Si es JSON plano (respuesta rápida sin SSE) ──
@@ -2361,12 +2476,12 @@ async function send() {
       const data = await res.json();
       if (data.response === '__watch__')  { startWatch(); return; }
       if (data.response === '__resume__') { showResume(); return; }
-      addMsg('ai', data.response || data.error || '(sin respuesta)');
+      addMsg('ai', data.response || data.error || '(sin respuesta)', _sendStart);
       return;
     }
 
     // ── SSE streaming: crear panel en vivo antes del primer dato ──
-    liveMsg = createLiveAiMsg();
+    liveMsg = createLiveAiMsg(_sendStart);
     await new Promise(r => setTimeout(r, 0)); // garantiza frame de render para mostrar dots
 
     const reader  = res.body.getReader();
@@ -2407,9 +2522,19 @@ async function send() {
     liveMsg.finalize('(sin respuesta)');
 
   } catch(e) {
-    if (liveMsg) liveMsg.finalize('Error de conexión: ' + e.message);
-    else addMsg('ai', 'Error de conexión: ' + e.message);
+    if (e.name === 'AbortError' && _chatAbortReason) {
+      // Interrupción intencional
+      if (liveMsg) {
+        liveMsg.appendLog('Interrupted ?> ' + _chatAbortReason.reason);
+        liveMsg.finalize('❗ ' + _chatAbortReason.display);
+      }
+    } else {
+      if (liveMsg) liveMsg.finalize('Error de conexión: ' + e.message);
+      else addMsg('ai', 'Error de conexión: ' + e.message);
+    }
   } finally {
+    window._chatAbort = null;
+    window._chatSoftInterrupt = null;
     busy = false; sendBtn.disabled = false; input.focus();
   }
 }
@@ -2470,7 +2595,12 @@ input.addEventListener('keydown', e => {
     e.preventDefault(); _historyNav(-1); return;
   }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-  if (e.key === 'Escape') { hideSlashMenu(); if (liveSource) stopWatch(); }
+  if (e.key === 'Escape') {
+    hideSlashMenu();
+    if (liveSource) stopWatch();
+    // Interrumpir LLM si está generando
+    if (busy && window._chatAbort) window._chatAbort('ESC key by user', 'esc: interrupted');
+  }
 });
 
 document.addEventListener('mousedown', e => {
@@ -3053,9 +3183,42 @@ function _fileIcon(ext) {
 }
 
 async function ideOpenAndSelect(path, name, ext) {
+  // Si el LLM está generando, interrumpirlo: el archivo ya se abrirá
+  if (busy && window._chatAbort) {
+    window._chatAbort('Archivo abierto en editor: ' + name, 'Archivo abierto');
+  }
   ideSwitchPanel('explorer');
   await ideOpenFile(path, name, ext);
   await ideSelectInTree(path);
+}
+
+async function ideExpandDir(dirPath) {
+  if (!_ideRoot) return;
+  // Expandir todos los ancestros hasta dirPath (inclusive)
+  const segments = [];
+  let p = dirPath;
+  while (p && p.startsWith(_ideRoot) && p !== _ideRoot) {
+    segments.unshift(p);
+    p = p.substring(0, p.lastIndexOf('/'));
+  }
+  for (const dir of segments) {
+    if (!_expandedDirs.has(dir)) {
+      _expandedDirs.add(dir);
+      const subId = 'ft-sub-' + btoa(dir).replace(/[^a-z0-9]/gi, '');
+      const sub = document.getElementById(subId);
+      const depth = segments.indexOf(dir) + 1;
+      if (sub) {
+        const dirRow = [...document.querySelectorAll('.ft-item')].find(r => r.dataset.path === dir);
+        if (dirRow) dirRow.querySelector('.ft-arrow').textContent = '▼';
+        await ideLoadDir(dir, sub, depth, true);
+      }
+    }
+    await new Promise(r => setTimeout(r, 30));
+  }
+  // Scroll al dir en el tree
+  await new Promise(r => setTimeout(r, 60));
+  const dirRow = [...document.querySelectorAll('.ft-item')].find(r => r.dataset.path === dirPath);
+  if (dirRow) dirRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 async function ideSelectInTree(path) {
@@ -3134,18 +3297,52 @@ function ideActivateTab(idx) {
   empty.style.display  = 'none';
   wrap.style.display   = 'flex';
 
+  const hlCode = document.getElementById('editor-hl-code');
+  const hlWrap = document.getElementById('editor-hl-wrap');
+
+  function _editorLang(ext) {
+    const m = { py:'python', js:'javascript', ts:'typescript', json:'json',
+                md:'markdown', html:'html', css:'css', toml:'ini',
+                yaml:'yaml', yml:'yaml', sh:'bash', bash:'bash', txt:'', lock:'', env:'' };
+    return m[ext] ?? '';
+  }
+
+  function _updateHighlight() {
+    const lang = _editorLang(tab.ext);
+    const text = code.value + '\n'; // trailing newline para que <pre> tenga el alto correcto
+    if (lang && typeof hljs !== 'undefined') {
+      try {
+        const result = hljs.highlight(text, { language: lang, ignoreIllegals: true });
+        hlCode.innerHTML = result.value;
+        hlCode.className = `hljs language-${lang}`;
+      } catch {
+        hlCode.textContent = text;
+        hlCode.className = '';
+      }
+    } else {
+      hlCode.textContent = text;
+      hlCode.className = '';
+    }
+    // Sincronizar alto del textarea con el <pre>
+    code.style.height = hlWrap.scrollHeight + 'px';
+  }
+
   // Textarea editable
   code.value = tab.content;
+  code.style.height = '';
+  _updateHighlight();
+
   code.oninput = () => {
     _openTabs[_activeTab].content = code.value;
     _openTabs[_activeTab].dirty = true;
     ideUpdateDirty();
-    // Actualizar números de línea
+    _updateHighlight();
     const ls = code.value.split('\n');
     gutter.innerHTML = ls.map((_, i) => `<div>${i + 1}</div>`).join('');
   };
-  // Sincronizar scroll del gutter con el textarea
-  code.onscroll = () => { gutter.scrollTop = code.scrollTop; };
+  // Sincronizar scroll del gutter con el wrapper (no el textarea, que tiene overflow:hidden)
+  code.onscroll = null;
+  hlWrap.onscroll = () => { gutter.scrollTop = hlWrap.scrollTop; };
 
   // Tab key → insertar 2 espacios
   code.onkeydown = (e) => {

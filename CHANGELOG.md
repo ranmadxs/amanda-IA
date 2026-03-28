@@ -1,4 +1,6 @@
-# Changelog
+## Version 1.4.0 - YYYY-MM-DD
+- Añadido nueva característica X.
+- Corregido error en módulo Y.# Changelog
 
 Todos los cambios notables del agente amanda-IA se documentan aquí.
 El proyecto inició como reescritura en Python en marzo 2026.

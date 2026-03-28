@@ -78,6 +78,7 @@ from prompt_toolkit.styles import DynamicStyle, Style, merge_styles
 from rich.console import Console
 
 from amanda_ia.tools import get_tools, execute_tool
+from amanda_ia.tools.registry import set_tool_hooks
 from amanda_ia.config import get_mcp_display_names, get_mcp_servers, get_mcp_servers_raw, set_mcp_server_enabled
 from amanda_ia.config import get_mods_raw, get_mods, set_mod_enabled
 from amanda_ia.config import _project_root, server_in_modo
@@ -97,6 +98,21 @@ OLLAMA_MODEL = os.environ.get("AIA_OLLAMA_MODEL", "llama3.1:8b")
 # Caché de rama git: (ruta, tiempo_última_consulta, branch)
 _git_branch_cache: tuple[str, float, str] | None = None
 _GIT_BRANCH_TTL = 5.0  # segundos entre consultas a git
+
+# ── Interrupción del agente ────────────────────────────────────────────────────
+import threading as _threading
+_interrupt_event = _threading.Event()
+_interrupt_reason: str = ""
+
+def request_interrupt(reason: str = "user") -> None:
+    global _interrupt_reason
+    _interrupt_reason = reason
+    _interrupt_event.set()
+
+def clear_interrupt() -> None:
+    global _interrupt_reason
+    _interrupt_reason = ""
+    _interrupt_event.clear()
 
 
 def _get_git_branch(cwd: str) -> str | None:
@@ -126,7 +142,7 @@ SIEMPRE responde en español, sin excepción. Nunca respondas en inglés, chino 
 # Fallback cuando mcp.json no tiene "systemPrompt" (opcional por servidor)
 SERVER_PROMPT_HINTS = {
     "get_time": "Si el usuario pregunta la hora, fecha o \"qué hora es\", USA get_time (sin parámetros).",
-    "filesystem": "Para list_directory: el directorio actual es {cwd}. Cuando pida \"carpeta actual\", pasa path=\"{cwd}\".",
+    "filesystem": "Filesystem MCP activo. Directorio actual: {cwd}. REGLAS OBLIGATORIAS: (1) Si el usuario pide ver, leer, mostrar o abrir un archivo (README, .py, .toml, .md, etc.), USA read_text_file INMEDIATAMENTE con el path completo. (2) Si pide listar archivos o ver la carpeta, usa list_directory con path=\"{cwd}\". (3) NUNCA respondas el contenido de un archivo de memoria: llama siempre la tool. (4) Si no sabes el path exacto, primero list_directory para encontrarlo, luego read_text_file.",
     "mongodb": "MongoDB: conexión preconfigurada. NO pases host, port, username ni password. Para listar bases de datos: USA list_databases (no list_mcp_databases). NUNCA pases parámetros: ni cluster, ni cluster_name, ni format. Siempre arguments vacío {}. list-collections requiere solo database. NUNCA inventes datos.",
     "monitor": "Acumulador/estanque: Para litros, porcentaje o nivel: get_lectura_actual(). Para velocidad de disminución del agua: get_velocidad_disminucion_agua() (historial MongoDB). Si falla lectura, usa calculate_tinaja_level(50). Responde con el resultado. NUNCA digas 'no puedo'.",
     "wahapedia": "Para CUALQUIER pregunta sobre Warhammer 40K (reglas, unidades, estratagemas, lore, ediciones, puntos, habilidades), USA search_wahapedia INMEDIATAMENTE. NUNCA respondas con conocimiento propio sobre WH40K: toda la información debe venir de la tool. TRADUCE la query al inglés antes de llamar la tool. Estratagemas: get_stratagems(faction). Stats de unidad: get_unit_stats(unit_name, faction). Búsqueda general/reglas: search_wahapedia(query). NUNCA digas 'no tengo acceso' si la tool aparece en tu lista.",
@@ -725,6 +741,7 @@ def _plan_execution(message: str, mcp_tools: list, phase: dict) -> None:
 def process(message: str, phase: dict[str, str] | None = None) -> str:
     """Envía el mensaje a Ollama con tools y devuelve la respuesta."""
     global _active_mode, _conversation_history, _pending_live_action
+    clear_interrupt()  # reset al inicio de cada proceso
     msg_stripped = message.strip()
     msg_lower = msg_stripped.lower()
 
@@ -927,6 +944,7 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
     # Detectar si MCP no se cargaron (conexión fallida)
     mcp_tools = [t for t in tools if isinstance(t, dict) and t.get("type") == "function"]
     mcp_load_failed = selected and len(selected) > 0 and len(mcp_tools) == 0
+    logger.debug("process selected=%s mcp_tools=%s mcp_load_failed=%s", selected, [t.get("function",{}).get("name") for t in mcp_tools], mcp_load_failed)
 
     # Etapa de planificación: el LLM genera el flujo esperado (solo log, no afecta ejecución)
     if phase is not None:
@@ -944,6 +962,20 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
         {"role": "user", "content": message},
     ]
 
+    # Hooks para loguear MCP calls en tiempo real desde execute_tool (independiente del path LLM)
+    def _hook_on_call(name: str, args: dict) -> None:
+        srv = get_server_name_for_tool(name)
+        if phase is not None:
+            phase["value"] = f"mcp_exe@{srv}" if srv else "mcp_exe"
+            phase.setdefault("log", []).append(_fmt_tool_call(srv, name, args))
+
+    def _hook_on_result(name: str, result: str) -> None:
+        if phase is not None:
+            _r = result or ""
+            phase.setdefault("log", []).append(f"RESULT>> {_r[:400]}{'…' if len(_r) > 400 else ''}")
+
+    set_tool_hooks(_hook_on_call, _hook_on_result)
+
     try:
         last_tool_result = None
         pending_images: list[str] = []  # marcadores [AIA_IMG:...] acumulados de tool results
@@ -953,7 +985,43 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
 
         _files_read: list[str] = []  # paths leídos en modo_dev para AIA_FILE markers
 
+        def _track_file_read(tool_name: str, tool_args: dict) -> None:
+            """Registra archivos leídos en modo_dev para inyectar AIA_FILE markers."""
+            if _active_mode != "modo_dev":
+                return
+            if tool_name in ("read_file", "get_file_contents", "read"):
+                _p = tool_args.get("path") or tool_args.get("file_path", "")
+                if _p and isinstance(_p, str) and _p not in _files_read:
+                    _files_read.append(_p)
+            elif tool_name == "read_multiple_files":
+                for _p in (tool_args.get("paths") or []):
+                    if isinstance(_p, str) and _p not in _files_read:
+                        _files_read.append(_p)
+            elif tool_name in ("run_command", "execute_command", "bash"):
+                # Detectar: cat /path, head /path, tail /path
+                cmd = tool_args.get("command") or tool_args.get("cmd") or ""
+                if isinstance(cmd, str):
+                    import shlex
+                    try:
+                        parts = shlex.split(cmd.strip())
+                    except ValueError:
+                        parts = cmd.strip().split()
+                    if parts and parts[0] in ("cat", "head", "tail", "less", "bat"):
+                        for part in parts[1:]:
+                            if part and not part.startswith("-") and ("." in part or "/" in part):
+                                _p = part if part.startswith("/") else str(Path(cwd) / part)
+                                if _p not in _files_read:
+                                    _files_read.append(_p)
+                                break
+
         for _round in range(MAX_TOOL_ROUNDS):
+            # Verificar interrupción antes de cada ronda
+            if _interrupt_event.is_set():
+                reason = _interrupt_reason or "user"
+                if phase is not None:
+                    phase.setdefault("log", []).append(f"Interrupted ?> {reason}")  # noqa: B905
+                return f"__interrupted__:{reason}"
+
             # LLM con tools en cada ronda — permite múltiples llamadas secuenciales
             if phase is not None:
                 phase["value"] = "Generando Respuesta"  # noqa: B905
@@ -963,14 +1031,12 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
 
             if hasattr(msg, "tool_calls") and msg.tool_calls:
                 # Ejecutar todas las tool_calls de esta ronda
+                logger.debug("tool_calls round=%d count=%d names=%s", _round, len(msg.tool_calls), [tc.function.name for tc in msg.tool_calls])
                 messages.append(_msg_to_dict(msg))
                 for tc in msg.tool_calls:
                     name = tc.function.name
                     if name == "list_mcp_databases":
                         name = "list_databases"
-                    server_name = get_server_name_for_tool(name)
-                    if phase is not None:
-                        phase["value"] = f"mcp_exe@{server_name}" if server_name else "mcp_exe"  # noqa: B905
                     args = _normalize_arguments(getattr(tc.function, "arguments", None))
                     if name in ("list_databases", "list-databases") and args:
                         args = {}
@@ -978,21 +1044,9 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                         args["path"] = cwd
                     if selected and len(selected) > 0 and get_server_name_for_tool(name) == "wahapedia" and args:
                         args = _translate_wahapedia_args(args)
-                    if phase is not None:
-                        phase.setdefault("log", []).append(_fmt_tool_call(server_name, name, args))  # noqa: B905
+                    # El log se emite desde execute_tool vía _hook_on_call/_hook_on_result
                     result = execute_tool(name, args)
-                    # Rastrear archivos leídos en modo_dev para inyectar AIA_FILE markers
-                    if _active_mode == "modo_dev" and name in ("read_file", "get_file_contents", "read"):
-                        _p = args.get("path") or args.get("file_path", "")
-                        if _p and isinstance(_p, str) and _p not in _files_read:
-                            _files_read.append(_p)
-                    elif _active_mode == "modo_dev" and name == "read_multiple_files":
-                        for _p in (args.get("paths") or []):
-                            if isinstance(_p, str) and _p not in _files_read:
-                                _files_read.append(_p)
-                    if phase is not None:
-                        _r = result or ""
-                        phase.setdefault("log", []).append(f"RESULT>> {_r[:400]}{'…' if len(_r) > 400 else ''}")  # noqa: B905
+                    _track_file_read(name, args)
                     last_tool_result = result
                     pending_images.extend(_img_re.findall(result))
                     messages.append({"role": "tool", "tool_name": name, "content": result})
@@ -1010,19 +1064,13 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                 name, params = tool_parsed
                 if name == "list_mcp_databases":
                     name = "list_databases"
-                server_name = get_server_name_for_tool(name)
-                if phase is not None:
-                    phase["value"] = f"mcp_exe@{server_name}" if server_name else "mcp_exe"  # noqa: B905
                 if name in ("list_databases", "list-databases") and params:
                     params = {}
-                if selected and len(selected) > 0 and server_name == "wahapedia" and params:
+                if selected and len(selected) > 0 and get_server_name_for_tool(name) == "wahapedia" and params:
                     params = _translate_wahapedia_args(params)
-                if phase is not None:
-                    phase.setdefault("log", []).append(_fmt_tool_call(server_name, name, params))  # noqa: B905
+                # El log se emite desde execute_tool vía _hook_on_call/_hook_on_result
                 result = execute_tool(name, params)
-                if phase is not None:
-                    _r = result or ""
-                    phase.setdefault("log", []).append(f"RESULT>> {_r[:400]}{'…' if len(_r) > 400 else ''}")  # noqa: B905
+                _track_file_read(name, params)
                 last_tool_result = result
                 pending_images.extend(_img_re.findall(result))
                 if name == "start_live_monitor":
@@ -1036,9 +1084,11 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
             # Respuesta final en texto plano — fin determinista del loop
             if content:
                 # En modo_dev: inyectar markers de archivo para que el frontend los capture
+                logger.debug("modo_dev _files_read=%s", _files_read)
                 if _active_mode == "modo_dev" and _files_read:
                     markers = " ".join(f"[AIA_FILE:{p}]" for p in _files_read)
                     content = markers + "\n" + content
+                    logger.debug("AIA_FILE markers injected: %s", markers)
                 if mcp_load_failed:
                     content += "\n\n[dim]Nota: No se cargaron las herramientas MCP. ¿Están los servidores corriendo? (ej: cd aia-mcp && poetry run mcp all --http). Prueba /cache delete si el clasificador falló.[/]"
                 if pending_images:

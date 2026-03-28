@@ -1000,6 +1000,8 @@ body.ide-mode #chat-panel {
       <div class="sh-btn" id="shbtn-verbose"  onclick="testRun('verbose')">pytest -v</div>
       <div class="sh-btn" id="shbtn-failed"   onclick="testRun('failed')">pytest --lf</div>
       <div class="sh-btn" id="shbtn-coverage" onclick="testRun('coverage')">pytest --cov</div>
+      <div class="test-section-label" style="margin-top:0.3rem">Archivos de test</div>
+      <div id="test-file-list" style="overflow-y:auto;flex:1;font-size:0.75rem;"></div>
     </div>
     <!-- Git colapsable -->
     <div class="sh-group-header" onclick="shToggle('git')">
@@ -1016,9 +1018,6 @@ body.ide-mode #chat-panel {
       <div class="sh-btn" onclick="termRun('git push')">⬆ git push</div>
       <div class="sh-btn" onclick="termRun('git stash')">📦 git stash</div>
     </div>
-    <!-- Test files -->
-    <div class="test-section-label" style="margin-top:0.3rem">Archivos de test</div>
-    <div id="test-file-list" style="overflow-y:auto;flex:1;font-size:0.75rem;"></div>
   </div>
 </div>
 
@@ -1777,6 +1776,7 @@ async function shToggle(name) {
   body.style.display  = open ? 'flex' : 'none';
   arrow.classList.toggle('open', open);
   if (open && name === 'git') await gitLoadStatus();
+  if (open && name === 'tests') testLoadFiles();
 }
 
 async function gitLoadStatus() {

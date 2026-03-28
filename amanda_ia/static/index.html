@@ -1215,8 +1215,201 @@ body.ide-mode #chat-panel {
 }
 .mcp-status { font-size: 0.7rem; flex-shrink: 0; }
 body.ide-mode #settings-btn { display: none; }
-#btn-settings-ide {
-  margin-bottom: 2px;
+#btn-settings-ide { margin-bottom: 2px; }
+
+/* ── IDE MCP Swagger view ───────────────────────────────── */
+#ide-mcp-view {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  background: var(--bg);
+}
+body.ide-mode.settings-active #ide-mcp-view    { display: flex; }
+body.ide-mode.settings-active #ide-editor      { display: none !important; }
+body.ide-mode.settings-active #ide-terminal    { display: none !important; }
+
+#mcp-view-header {
+  padding: 0.8rem 1.1rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg-panel);
+}
+#mcp-view-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.3rem;
+}
+#mcp-view-cmd {
+  font-size: 0.7rem;
+  color: #74b9ff;
+  font-family: 'SF Mono','Fira Code',monospace;
+  opacity: 0.8;
+}
+#mcp-view-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  font-style: italic;
+}
+#mcp-view-tools {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.6rem 0.9rem 1rem;
+}
+#mcp-view-tools::-webkit-scrollbar { width: 5px; }
+#mcp-view-tools::-webkit-scrollbar-thumb { background: #424242; border-radius: 3px; }
+#mcp-view-loading {
+  padding: 1rem;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.sw-tool {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 0.55rem;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.sw-tool-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background .1s;
+}
+.sw-tool-header:hover { background: #1a1a2e; }
+.sw-tool-arrow { font-size: 0.6rem; color: #555; transition: transform .15s; flex-shrink: 0; }
+.sw-tool.open .sw-tool-arrow { transform: rotate(90deg); }
+.sw-tool-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #74b9ff;
+  font-family: 'SF Mono','Fira Code',monospace;
+  flex-shrink: 0;
+}
+.sw-tool-desc {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.sw-tool-body {
+  display: none;
+  padding: 0.7rem 0.9rem 0.8rem;
+  border-top: 1px solid var(--border);
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.sw-tool.open .sw-tool-body { display: flex; }
+.sw-tool-fulldesc {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin-bottom: 0.2rem;
+}
+.sw-params { display: flex; flex-direction: column; gap: 0.45rem; }
+.sw-param-row { display: flex; flex-direction: column; gap: 3px; }
+.sw-param-label {
+  font-size: 0.67rem;
+  font-weight: 700;
+  color: #a29bfe;
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+.sw-param-req { color: #e17055; font-size: 0.6rem; }
+.sw-param-type { color: #636e72; font-size: 0.6rem; font-weight: 400; }
+.sw-param-desc { font-size: 0.65rem; color: var(--text-dim); }
+.sw-param-input {
+  background: #0d0d1a;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 7px;
+  color: var(--text);
+  font-family: 'SF Mono','Fira Code',monospace;
+  font-size: 0.74rem;
+  width: 100%;
+  resize: vertical;
+}
+.sw-param-input:focus { border-color: #74b9ff; outline: none; }
+.sw-exec-btn {
+  align-self: flex-start;
+  padding: 5px 14px;
+  background: #0078d4;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-family: inherit;
+  transition: background .15s;
+}
+.sw-exec-btn:hover { background: #005fa3; }
+.sw-exec-btn:disabled { background: #444; cursor: default; }
+.sw-result {
+  background: #0d0d1a;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem 0.7rem;
+  font-family: 'SF Mono','Fira Code',monospace;
+  font-size: 0.72rem;
+  color: #ffeaa7;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+  display: none;
+}
+.sw-result.visible { display: block; }
+.sw-result.error { color: #e17055; }
+
+/* panel-settings sidebar */
+#panel-settings {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.sw-mcp-list {
+  overflow-y: auto;
+  flex: 1;
+  font-size: 0.78rem;
+}
+.sw-mcp-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  color: var(--text-dim);
+  transition: background .1s, color .1s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sw-mcp-item:hover  { background: #1a1a2e; color: var(--text); }
+.sw-mcp-item.active { background: #1e2040; color: var(--text); }
+.sw-mcp-item.dim    { opacity: 0.38; }
+.sw-mcp-sep {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 0.5rem 0.8rem 0.15rem;
+  border-top: 1px solid var(--border);
+  margin-top: 0.2rem;
 }
 #settings-detail {
   flex: 1;
@@ -1358,6 +1551,10 @@ body.ide-mode #settings-btn { display: none; }
   <div id="panel-mongo" style="display:none; flex-direction:column; flex:1; overflow:hidden;">
     <div id="mongo-tree" style="overflow-y:auto;flex:1;font-size:0.78rem;"></div>
   </div>
+  <!-- Panel: Settings MCP -->
+  <div id="panel-settings" style="display:none; flex-direction:column; flex:1; overflow:hidden;">
+    <div class="sw-mcp-list" id="sw-mcp-list"></div>
+  </div>
   <!-- Panel: Terminal (shortcuts) -->
   <div id="panel-terminal" style="display:none; flex-direction:column; flex:1; overflow:hidden;">
     <!-- Tests colapsable -->
@@ -1467,6 +1664,17 @@ body.ide-mode #settings-btn { display: none; }
       <textarea id="editor-code" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
     </div>
   </div>
+</div>
+
+<!-- IDE: MCP Swagger view (reemplaza editor en settings-active) -->
+<div id="ide-mcp-view">
+  <div id="mcp-view-header" style="display:none">
+    <div id="mcp-view-name"></div>
+    <div id="mcp-view-cmd"></div>
+    <div id="mcp-view-badges" style="margin-top:0.4rem"></div>
+  </div>
+  <div id="mcp-view-empty">Selecciona un servidor MCP</div>
+  <div id="mcp-view-tools" style="display:none"></div>
 </div>
 
 <!-- IDE: Terminal (reemplaza editor, misma área) -->
@@ -2190,19 +2398,22 @@ let _activePanel = 'explorer';
 
 function ideSwitchPanel(name) {
   _activePanel = name;
-  document.getElementById('panel-explorer').style.display = name === 'explorer' ? 'block' : 'none';
-  document.getElementById('panel-mongo').style.display = name === 'mongo' ? 'flex' : 'none';
-  document.getElementById('panel-terminal').style.display = name === 'terminal' ? 'flex' : 'none';
-  const titles = { explorer: 'Explorer', mongo: 'MongoDB', terminal: 'Terminal' };
+  document.getElementById('panel-explorer').style.display  = name === 'explorer' ? 'block' : 'none';
+  document.getElementById('panel-mongo').style.display     = name === 'mongo'    ? 'flex'  : 'none';
+  document.getElementById('panel-terminal').style.display  = name === 'terminal' ? 'flex'  : 'none';
+  document.getElementById('panel-settings').style.display  = name === 'settings' ? 'flex'  : 'none';
+  const titles = { explorer: 'Explorer', mongo: 'MongoDB', terminal: 'Terminal', settings: 'Settings' };
   document.getElementById('ide-sidebar-title').textContent = titles[name] || name;
   document.getElementById('btn-explorer').classList.toggle('active', name === 'explorer');
   document.getElementById('btn-mongo').classList.toggle('active', name === 'mongo');
   document.getElementById('btn-terminal').classList.toggle('active', name === 'terminal');
-  document.body.classList.toggle('term-active', name === 'terminal');
-  // Si cambia de panel, ocultar query panel mongo
+  document.getElementById('btn-settings-ide').classList.toggle('active', name === 'settings');
+  document.body.classList.toggle('term-active',     name === 'terminal');
+  document.body.classList.toggle('settings-active', name === 'settings');
   if (name !== 'mongo') mqHide();
-  if (name === 'mongo') mongoInit();
+  if (name === 'mongo')    mongoInit();
   if (name === 'terminal') { termFocus().then(() => testLoadFiles()); }
+  if (name === 'settings') swLoadMcpList();
 }
 
 // ── Terminal ──────────────────────────────────────────────────────
@@ -2982,6 +3193,11 @@ let _mcpAll = [];
 let _activeModeNames = new Set();
 
 async function settingsOpen() {
+  // En IDE mode: usar el panel lateral en lugar del modal
+  if (document.body.classList.contains('ide-mode')) {
+    ideSwitchPanel('settings');
+    return;
+  }
   document.getElementById('settings-overlay').classList.add('visible');
   document.getElementById('settings-detail').innerHTML = '<span class="sd-empty">Selecciona un servidor</span>';
   document.getElementById('settings-list').innerHTML = '';
@@ -3077,6 +3293,217 @@ function settingsSelect(idx, rowEl) {
     <div>${enabledBadge}${modoBadge}${globalBadge}</div>
     ${cmdHtml}${envHtml}${kwHtml}${promptHtml}
   `;
+}
+
+// ── MCP Swagger UI (IDE mode settings panel) ─────────────────────
+let _swMcpAll = [];
+let _swActiveModeNames = new Set();
+let _swSelectedServer = null;
+
+async function swLoadMcpList() {
+  const list = document.getElementById('sw-mcp-list');
+  list.innerHTML = '';
+  try {
+    const res = await fetch('/api/mcp/all');
+    _swMcpAll = await res.json();
+  } catch(e) { _swMcpAll = []; }
+  _swActiveModeNames = new Set(currentMod ? (currentMod.mcpServers || []) : []);
+
+  const inMode  = _swMcpAll.filter(s => _swActiveModeNames.has(s.name));
+  const outMode = _swMcpAll.filter(s => !_swActiveModeNames.has(s.name));
+
+  function addItem(s, dim) {
+    const row = document.createElement('div');
+    row.className = 'sw-mcp-item' + (dim ? ' dim' : '');
+    const icon = s.enabled ? '🟢' : '🔴';
+    row.innerHTML = `<span style="font-size:.7rem;flex-shrink:0">${icon}</span><span>${s.name}</span>`;
+    row.addEventListener('click', () => swSelectServer(s, row));
+    list.appendChild(row);
+  }
+
+  if (inMode.length) {
+    const sep = document.createElement('div');
+    sep.className = 'sw-mcp-sep';
+    sep.textContent = currentMod && currentMod.key ? currentMod.displayName : 'General';
+    list.appendChild(sep);
+    inMode.forEach(s => addItem(s, false));
+  }
+  if (outMode.length) {
+    const sep = document.createElement('div');
+    sep.className = 'sw-mcp-sep';
+    sep.textContent = 'Otros';
+    list.appendChild(sep);
+    outMode.forEach(s => addItem(s, true));
+  }
+}
+
+async function swSelectServer(server, rowEl) {
+  _swSelectedServer = server;
+  document.querySelectorAll('.sw-mcp-item').forEach(r => r.classList.remove('active'));
+  rowEl.classList.add('active');
+
+  // Header
+  const header = document.getElementById('mcp-view-header');
+  const empty  = document.getElementById('mcp-view-empty');
+  const tools  = document.getElementById('mcp-view-tools');
+  header.style.display = '';
+  empty.style.display  = 'none';
+  tools.style.display  = '';
+  document.getElementById('mcp-view-name').textContent = server.name;
+  const cmd = server.url
+    ? server.url
+    : [server.command, ...(server.args || [])].join(' ');
+  document.getElementById('mcp-view-cmd').textContent = cmd;
+  const inMode = _swActiveModeNames.has(server.name);
+  const badge = inMode
+    ? (server.enabled ? '<span class="sd-badge enabled">🟢 habilitado</span>' : '<span class="sd-badge disabled">🔴 deshabilitado</span>')
+    : '<span class="sd-badge inactive">⚫ no disponible en este modo</span>';
+  const modoBadge = server.modo === 'ALL'
+    ? '<span class="sd-badge global">🌐 ALL</span>'
+    : server.modo
+      ? `<span class="sd-badge modo">🎯 ${server.modo}</span>`
+      : '<span class="sd-badge global">🌐 general</span>';
+  document.getElementById('mcp-view-badges').innerHTML = badge + modoBadge;
+
+  // Cargar tools
+  tools.innerHTML = '<div id="mcp-view-loading">Conectando al servidor MCP…</div>';
+  try {
+    const res = await fetch(`/api/mcp/tools?name=${encodeURIComponent(server.name)}`);
+    const schemas = await res.json();
+    swRenderTools(tools, server.name, schemas);
+  } catch(e) {
+    tools.innerHTML = `<div id="mcp-view-loading" style="color:#e17055">Error: ${e.message}</div>`;
+  }
+}
+
+function swRenderTools(container, serverName, schemas) {
+  container.innerHTML = '';
+  if (!schemas || schemas.length === 0) {
+    container.innerHTML = '<div id="mcp-view-loading">Sin tools disponibles</div>';
+    return;
+  }
+  schemas.forEach(schema => {
+    const fn = schema.function || {};
+    const params = fn.parameters || {};
+    const props  = params.properties || {};
+    const req    = new Set(params.required || []);
+
+    const card = document.createElement('div');
+    card.className = 'sw-tool';
+
+    // Header de la tool
+    const hdr = document.createElement('div');
+    hdr.className = 'sw-tool-header';
+    hdr.innerHTML = `
+      <span class="sw-tool-arrow">▶</span>
+      <span class="sw-tool-name">${fn.name || '?'}</span>
+      <span class="sw-tool-desc">${fn.description || ''}</span>
+    `;
+    hdr.addEventListener('click', () => card.classList.toggle('open'));
+
+    // Body expandible
+    const body = document.createElement('div');
+    body.className = 'sw-tool-body';
+
+    if (fn.description) {
+      const desc = document.createElement('div');
+      desc.className = 'sw-tool-fulldesc';
+      desc.textContent = fn.description;
+      body.appendChild(desc);
+    }
+
+    // Params form
+    const inputs = {};
+    if (Object.keys(props).length) {
+      const paramsDiv = document.createElement('div');
+      paramsDiv.className = 'sw-params';
+      Object.entries(props).forEach(([key, pdef]) => {
+        const isReq = req.has(key);
+        const type  = pdef.type || 'string';
+        const row   = document.createElement('div');
+        row.className = 'sw-param-row';
+        const labelHtml = `<span class="sw-param-label">
+          ${key}${isReq ? '<span class="sw-param-req">*</span>' : ''}
+          <span class="sw-param-type">${type}</span>
+        </span>`;
+        const descHtml = pdef.description
+          ? `<span class="sw-param-desc">${pdef.description}</span>` : '';
+        let inputEl;
+        if (type === 'boolean') {
+          inputEl = document.createElement('select');
+          inputEl.className = 'sw-param-input';
+          inputEl.innerHTML = '<option value="">— elegir —</option><option value="true">true</option><option value="false">false</option>';
+        } else if (type === 'object' || type === 'array') {
+          inputEl = document.createElement('textarea');
+          inputEl.className = 'sw-param-input';
+          inputEl.rows = 3;
+          inputEl.placeholder = type === 'object' ? '{"key": "value"}' : '["item1"]';
+        } else {
+          inputEl = document.createElement('input');
+          inputEl.type = type === 'integer' || type === 'number' ? 'number' : 'text';
+          inputEl.className = 'sw-param-input';
+          inputEl.placeholder = pdef.description || key;
+        }
+        inputs[key] = { el: inputEl, type };
+        row.innerHTML = labelHtml + descHtml;
+        row.appendChild(inputEl);
+        paramsDiv.appendChild(row);
+      });
+      body.appendChild(paramsDiv);
+    } else {
+      const noParams = document.createElement('div');
+      noParams.className = 'sw-tool-fulldesc';
+      noParams.textContent = 'Sin parámetros';
+      body.appendChild(noParams);
+    }
+
+    // Botón ejecutar + result
+    const execBtn = document.createElement('button');
+    execBtn.className = 'sw-exec-btn';
+    execBtn.textContent = '▶ Ejecutar';
+    const resultEl = document.createElement('div');
+    resultEl.className = 'sw-result';
+
+    execBtn.addEventListener('click', async () => {
+      const args = {};
+      for (const [key, {el, type}] of Object.entries(inputs)) {
+        const val = el.value.trim();
+        if (!val) continue;
+        if (type === 'integer') args[key] = parseInt(val);
+        else if (type === 'number') args[key] = parseFloat(val);
+        else if (type === 'boolean') args[key] = val === 'true';
+        else if (type === 'object' || type === 'array') {
+          try { args[key] = JSON.parse(val); } catch { args[key] = val; }
+        } else args[key] = val;
+      }
+      execBtn.disabled = true;
+      execBtn.textContent = '⏳ Ejecutando…';
+      resultEl.className = 'sw-result visible';
+      resultEl.textContent = '…';
+      try {
+        const res = await fetch('/api/mcp/call', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ server: serverName, tool: fn.name, args })
+        });
+        const data = await res.json();
+        resultEl.textContent = data.result ?? data.error ?? JSON.stringify(data);
+        resultEl.classList.toggle('error', !data.ok);
+      } catch(e) {
+        resultEl.textContent = `Error: ${e.message}`;
+        resultEl.classList.add('error');
+      } finally {
+        execBtn.disabled = false;
+        execBtn.textContent = '▶ Ejecutar';
+      }
+    });
+
+    body.appendChild(execBtn);
+    body.appendChild(resultEl);
+    card.appendChild(hdr);
+    card.appendChild(body);
+    container.appendChild(card);
+  });
 }
 
 // ── Go ────────────────────────────────────────────────────────────

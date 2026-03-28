@@ -212,6 +212,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_mongo_query()
         elif path == "/api/mcp/all":
             self._handle_mcp_all()
+        elif path == "/api/mcp/tools":
+            self._handle_mcp_tools()
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -231,6 +233,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_file_save(self._read_json())
         elif path == "/api/feedback":
             self._handle_feedback(self._read_json())
+        elif path == "/api/mcp/call":
+            self._handle_mcp_call(self._read_json())
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -257,6 +261,43 @@ class _Handler(BaseHTTPRequestHandler):
                 "systemPrompt": s.get("systemPrompt", ""),
             })
         self._send_json(result)
+
+    def _handle_mcp_tools(self) -> None:
+        from urllib.parse import parse_qs, urlparse
+        from amanda_ia.config import get_mcp_servers_raw
+        from amanda_ia.mcp_client import list_tools_for_server
+        qs = parse_qs(urlparse(self.path).query)
+        name = qs.get("name", [""])[0]
+        if not name:
+            self._send_json({"error": "name required"}, 400)
+            return
+        servers = get_mcp_servers_raw()
+        server = next((s for s in servers if s.get("name") == name), None)
+        if not server:
+            self._send_json({"error": "server not found"}, 404)
+            return
+        schemas = list_tools_for_server(server)
+        self._send_json(schemas)
+
+    def _handle_mcp_call(self, body: dict) -> None:
+        from amanda_ia.config import get_mcp_servers_raw
+        from amanda_ia.mcp_client import call_tool_on_server
+        server_name = body.get("server", "")
+        tool_name   = body.get("tool", "")
+        args        = body.get("args", {})
+        if not server_name or not tool_name:
+            self._send_json({"error": "server and tool required"}, 400)
+            return
+        servers = get_mcp_servers_raw()
+        server = next((s for s in servers if s.get("name") == server_name), None)
+        if not server:
+            self._send_json({"error": "server not found"}, 404)
+            return
+        try:
+            result = call_tool_on_server(server, tool_name, args)
+            self._send_json({"ok": True, "result": result})
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)})
 
     def _handle_mode(self, body: dict) -> None:
         global _web_mode

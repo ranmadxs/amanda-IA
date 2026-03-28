@@ -265,6 +265,33 @@ def invalidate_mcp_cache() -> None:
     _schemas_cache = None
 
 
+def list_tools_for_server(server: dict[str, Any]) -> list[dict[str, Any]]:
+    """Lista tools de un servidor específico sin usar cache. Retorna schemas Ollama."""
+    try:
+        if server.get("url"):
+            _, schemas = anyio.run(_list_tools_http, server["url"])
+        elif server.get("command"):
+            _, schemas = anyio.run(_list_tools_stdio, server)
+        else:
+            return []
+        return schemas
+    except BaseException as e:
+        log.warning("list_tools_for_server %s: %s", server.get("name"), _format_mcp_error(e))
+        return []
+
+
+def call_tool_on_server(server: dict[str, Any], tool_name: str, arguments: dict[str, Any]) -> str:
+    """Llama a una tool en un servidor específico sin usar cache."""
+    try:
+        if server.get("url"):
+            return anyio.run(_call_tool_http, server["url"], tool_name, arguments)
+        elif server.get("command"):
+            return anyio.run(_call_tool_stdio, server, tool_name, arguments)
+        return "Error: servidor sin comando ni URL"
+    except BaseException as e:
+        return f"Error MCP: {_format_mcp_error(e)}"
+
+
 async def _list_tools_described(server: dict[str, Any]) -> list[tuple[str, str]]:
     """Retorna [(tool_name, description), ...] conectando directamente al servidor."""
     if server.get("url"):

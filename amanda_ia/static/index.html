@@ -615,7 +615,7 @@ function moveFocus(dir) {
 }
 
 // ── Messages ─────────────────────────────────────────────────────
-function addMsg(role, text, logs) {
+function addMsg(role, text) {
   const wrap = document.createElement('div');
   wrap.className = `msg ${role}`;
   const label = document.createElement('div');
@@ -626,14 +626,11 @@ function addMsg(role, text, logs) {
   bubble.textContent = text;
   wrap.appendChild(label);
   wrap.appendChild(bubble);
-  if (role === 'ai' && logs && logs.length) {
-    wrap.appendChild(buildLogPanel(logs));
-  }
   messages.appendChild(wrap);
   scrollDown();
 }
 
-// ── Log panel ─────────────────────────────────────────────────────
+// ── Log panel en vivo ─────────────────────────────────────────────
 function classifyLog(entry) {
   if (entry.startsWith('PLAN>>'))   return 'log-plan';
   if (entry.startsWith('LLM>>'))    return 'log-llm';
@@ -651,28 +648,62 @@ function planToMermaid(planText) {
   return `flowchart LR\n${nodes}\n${edges}`;
 }
 
-function buildLogPanel(logs) {
-  const mcpCalls = logs.filter(e => e.includes('>>mcp.'));
-  const servers  = [...new Set(mcpCalls.map(e => {
-    const m = e.match(/mcp\.([^.]+)\./);
-    return m ? m[1] : null;
-  }).filter(Boolean))];
+// Crea el wrapper AI con panel de logs en vivo. Devuelve { wrap, appendLog, finalize }.
+function createLiveAiMsg() {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ai';
 
+  const label = document.createElement('div');
+  label.className = 'msg-label';
+  label.textContent = currentMod?.displayName || 'AiA';
+
+  // Panel de logs abierto desde el inicio
   const details = document.createElement('details');
   details.className = 'log-panel';
+  details.open = true;
 
   const summary = document.createElement('summary');
   summary.className = 'log-summary';
-  summary.innerHTML = `<span class="log-toggle">▶</span>`
-    + `<span class="log-count">${logs.length} paso${logs.length!==1?'s':''}</span>`
-    + (servers.length ? `<span class="log-servers">· ${servers.map(s=>`🔌 ${s}`).join(' ')}</span>` : '');
+
+  const countEl  = document.createElement('span');
+  countEl.className = 'log-count';
+  countEl.textContent = '0 pasos';
+
+  const serversEl = document.createElement('span');
+  serversEl.className = 'log-servers';
+
+  summary.appendChild(countEl);
+  summary.appendChild(serversEl);
   details.appendChild(summary);
 
   const body = document.createElement('div');
   body.className = 'log-body';
+  details.appendChild(body);
 
-  for (const entry of logs) {
+  wrap.appendChild(label);
+  wrap.appendChild(details);
+  messages.appendChild(wrap);
+  scrollDown();
+
+  let count = 0;
+  const servers = new Set();
+
+  function _updateSummary() {
+    countEl.textContent = `${count} paso${count !== 1 ? 's' : ''}`;
+    if (servers.size) {
+      serversEl.textContent = ' · ' + [...servers].map(s => `🔌 ${s}`).join(' ');
+    }
+  }
+
+  function appendLog(entry) {
+    count++;
     const cls = classifyLog(entry);
+
+    // Rastrear servidores MCP
+    if (cls === 'log-mcp') {
+      const m = entry.match(/mcp\.([^.]+)\./);
+      if (m) servers.add(m[1]);
+    }
 
     if (cls === 'log-plan') {
       const mermaidDef = planToMermaid(entry);
@@ -680,14 +711,16 @@ function buildLogPanel(logs) {
         const mermaidEl = document.createElement('div');
         mermaidEl.className = 'log-mermaid';
         const id = 'mmd-' + Math.random().toString(36).slice(2);
-        mermaid.render(id, mermaidDef).then(({svg}) => {
+        mermaid.render(id, mermaidDef).then(({ svg }) => {
           mermaidEl.innerHTML = svg;
         }).catch(() => {
           mermaidEl.textContent = entry;
           mermaidEl.className = 'log-entry log-plan';
         });
         body.appendChild(mermaidEl);
-        continue;
+        _updateSummary();
+        scrollDown();
+        return;
       }
     }
 
@@ -695,10 +728,21 @@ function buildLogPanel(logs) {
     el.className = `log-entry ${cls}`;
     el.textContent = entry;
     body.appendChild(el);
+    _updateSummary();
+    scrollDown();
   }
 
-  details.appendChild(body);
-  return details;
+  function finalize(text) {
+    // Colapsar el panel y agregar burbuja de respuesta
+    details.open = false;
+    const bubble = document.createElement('div');
+    bubble.className = 'msg-bubble';
+    bubble.textContent = text;
+    wrap.appendChild(bubble);
+    scrollDown();
+  }
+
+  return { wrap, appendLog, finalize };
 }
 
 function addSystemMsg(text) {
@@ -745,9 +789,8 @@ async function send() {
   input.value = ''; input.style.height = 'auto';
 
   addMsg('user', text);
-  addTyping();
 
-  const logs = [];
+  let liveMsg = null;
 
   try {
     const res = await fetch('/api/chat', {
@@ -760,13 +803,14 @@ async function send() {
     const ct = res.headers.get('content-type') || '';
     if (ct.includes('application/json')) {
       const data = await res.json();
-      removeTyping();
       if (data.response === '__watch__') { startWatch(); return; }
       addMsg('ai', data.response || data.error || '(sin respuesta)');
       return;
     }
 
-    // ── SSE streaming ──
+    // ── SSE streaming: crear panel en vivo antes del primer dato ──
+    liveMsg = createLiveAiMsg();
+
     const reader  = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
@@ -793,22 +837,20 @@ async function send() {
       if (done) break;
       for (const ev of parseSSE(decoder.decode(value, { stream: true }))) {
         if (ev.type === 'log') {
-          logs.push(ev.data.entry);
+          liveMsg.appendLog(ev.data.entry);
         } else if (ev.type === 'response') {
-          removeTyping();
           const resp = ev.data.response;
-          if (resp === '__watch__') { startWatch(); return; }
-          addMsg('ai', resp || '(sin respuesta)', logs);
+          if (resp === '__watch__') { liveMsg.wrap.remove(); startWatch(); return; }
+          liveMsg.finalize(resp || '(sin respuesta)');
           return;
         }
       }
     }
-    removeTyping();
-    addMsg('ai', '(sin respuesta)', logs);
+    liveMsg.finalize('(sin respuesta)');
 
   } catch(e) {
-    removeTyping();
-    addMsg('ai', 'Error de conexión: ' + e.message);
+    if (liveMsg) liveMsg.finalize('Error de conexión: ' + e.message);
+    else addMsg('ai', 'Error de conexión: ' + e.message);
   } finally {
     busy = false; sendBtn.disabled = false; input.focus();
   }

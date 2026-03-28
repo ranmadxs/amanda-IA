@@ -197,6 +197,12 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_files()
         elif path == "/api/file":
             self._handle_file_content()
+        elif path == "/api/mongo/dbs":
+            self._handle_mongo_dbs()
+        elif path == "/api/mongo/collections":
+            self._handle_mongo_collections()
+        elif path == "/api/mongo/docs":
+            self._handle_mongo_docs()
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -364,6 +370,78 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(data)
+
+    # ── MongoDB explorer ──
+
+    def _handle_mongo_dbs(self) -> None:
+        import os
+        mongodb_uri = os.getenv("MONGODB_URI", "")
+        if not mongodb_uri:
+            self._send_json({"error": "MONGODB_URI not set"}, 503)
+            return
+        try:
+            from pymongo import MongoClient
+            client = MongoClient(mongodb_uri, serverSelectionTimeoutMS=3000)
+            dbs = [d["name"] for d in client.list_databases() if d["name"] not in ("admin", "local", "config")]
+            self._send_json({"dbs": dbs})
+        except Exception as e:
+            self._send_json({"error": str(e)}, 500)
+
+    def _handle_mongo_collections(self) -> None:
+        import os
+        from urllib.parse import parse_qs, urlparse
+        mongodb_uri = os.getenv("MONGODB_URI", "")
+        if not mongodb_uri:
+            self._send_json({"error": "MONGODB_URI not set"}, 503)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        db_name = qs.get("db", [""])[0]
+        if not db_name:
+            self._send_json({"error": "db param required"}, 400)
+            return
+        try:
+            from pymongo import MongoClient
+            client = MongoClient(mongodb_uri, serverSelectionTimeoutMS=3000)
+            db = client[db_name]
+            cols = []
+            for col_name in sorted(db.list_collection_names()):
+                count = db[col_name].estimated_document_count()
+                cols.append({"name": col_name, "count": count})
+            self._send_json({"collections": cols})
+        except Exception as e:
+            self._send_json({"error": str(e)}, 500)
+
+    def _handle_mongo_docs(self) -> None:
+        import os
+        from urllib.parse import parse_qs, urlparse
+        mongodb_uri = os.getenv("MONGODB_URI", "")
+        if not mongodb_uri:
+            self._send_json({"error": "MONGODB_URI not set"}, 503)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        db_name = qs.get("db", [""])[0]
+        col_name = qs.get("col", [""])[0]
+        limit = int(qs.get("limit", ["50"])[0])
+        if not db_name or not col_name:
+            self._send_json({"error": "db and col params required"}, 400)
+            return
+        try:
+            from bson import ObjectId
+            from pymongo import MongoClient
+            client = MongoClient(mongodb_uri, serverSelectionTimeoutMS=3000)
+            docs = list(client[db_name][col_name].find({}, limit=limit))
+            # Convert non-serializable BSON types
+            def _convert(obj):
+                if isinstance(obj, ObjectId):
+                    return str(obj)
+                if isinstance(obj, dict):
+                    return {k: _convert(v) for k, v in obj.items()}
+                if isinstance(obj, list):
+                    return [_convert(i) for i in obj]
+                return obj
+            self._send_json({"docs": _convert(docs)})
+        except Exception as e:
+            self._send_json({"error": str(e)}, 500)
 
     def _handle_watch(self) -> None:
         """SSE: reenvía el stream de localhost:8003/live al browser."""

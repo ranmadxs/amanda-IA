@@ -462,6 +462,15 @@ body.ide-mode #ide-activity { display: flex; }
 }
 .ide-act-btn:hover { color: #cccccc; background: #2a2d2e; }
 .ide-act-btn.active { color: #ffffff; border-left: 2px solid #ffffff; border-radius: 0; }
+#btn-mongo.active { border-left-color: #00ed64; color: #00ed64; }
+
+/* MongoDB tree */
+.mg-db   { color: #00ed64; font-weight: 600; }
+.mg-col  { color: #cccccc; }
+.mg-col:hover { background: #094771; color: #fff; }
+.mg-count { color: #555; font-size: 0.68rem; margin-left: auto; padding-right: 8px; }
+.mg-loading { color: #555; padding: 8px 14px; font-size: 0.78rem; }
+.mg-err { color: #e74c3c; padding: 8px 14px; font-size: 0.78rem; }
 
 /* Sidebar file tree */
 #ide-sidebar {
@@ -630,17 +639,31 @@ body.ide-mode #chat-panel {
 
 <!-- IDE: Activity bar -->
 <div id="ide-activity">
-  <div class="ide-act-btn active" id="btn-explorer" title="Explorer">
+  <div class="ide-act-btn active" id="btn-explorer" title="Explorer" onclick="ideSwitchPanel('explorer')">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
       <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
     </svg>
   </div>
+  <div class="ide-act-btn" id="btn-mongo" title="MongoDB" onclick="ideSwitchPanel('mongo')">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <ellipse cx="12" cy="6" rx="7" ry="3"/>
+      <path d="M5 6v6c0 1.66 3.13 3 7 3s7-1.34 7-3V6"/>
+      <path d="M5 12v6c0 1.66 3.13 3 7 3s7-1.34 7-3v-6"/>
+    </svg>
+  </div>
 </div>
 
-<!-- IDE: File tree sidebar -->
+<!-- IDE: Sidebar (panels intercambiables) -->
 <div id="ide-sidebar">
   <div id="ide-sidebar-title">Explorer</div>
-  <div id="file-tree"></div>
+  <!-- Panel: File tree -->
+  <div id="panel-explorer">
+    <div id="file-tree"></div>
+  </div>
+  <!-- Panel: MongoDB -->
+  <div id="panel-mongo" style="display:none; flex-direction:column; flex:1; overflow:hidden;">
+    <div id="mongo-tree" style="overflow-y:auto;flex:1;font-size:0.78rem;"></div>
+  </div>
 </div>
 
 <!-- IDE: Editor -->
@@ -1216,6 +1239,98 @@ document.addEventListener('mousedown', e => {
 });
 
 sendBtn.addEventListener('click', send);
+
+// ── IDE panel switcher ────────────────────────────────────────────
+let _activePanel = 'explorer';
+
+function ideSwitchPanel(name) {
+  _activePanel = name;
+  document.getElementById('panel-explorer').style.display = name === 'explorer' ? 'block' : 'none';
+  const mp = document.getElementById('panel-mongo');
+  mp.style.display = name === 'mongo' ? 'flex' : 'none';
+  document.getElementById('ide-sidebar-title').textContent =
+    name === 'explorer' ? 'Explorer' : 'MongoDB';
+  document.getElementById('btn-explorer').classList.toggle('active', name === 'explorer');
+  document.getElementById('btn-mongo').classList.toggle('active', name === 'mongo');
+  if (name === 'mongo') mongoInit();
+}
+
+// ── MongoDB explorer ──────────────────────────────────────────────
+let _mongoLoaded = false;
+let _mongoExpanded = new Set();
+
+async function mongoInit() {
+  if (_mongoLoaded) return;
+  const tree = document.getElementById('mongo-tree');
+  tree.innerHTML = '<div class="mg-loading">⏳ Conectando a MongoDB…</div>';
+  const data = await fetch('/api/mongo/dbs').then(r => r.json()).catch(() => ({ error: 'sin conexión' }));
+  if (data.error) {
+    tree.innerHTML = `<div class="mg-err">⚠️ ${data.error}</div>`;
+    return;
+  }
+  _mongoLoaded = true;
+  tree.innerHTML = '';
+  for (const db of data.dbs) {
+    const dbRow = document.createElement('div');
+    dbRow.className = 'ft-item mg-db';
+    dbRow.style.setProperty('--depth', 0);
+    dbRow.innerHTML = `<span class="ft-arrow">▶</span><span>🗄️</span><span class="ft-name">${db}</span>`;
+    tree.appendChild(dbRow);
+
+    const colContainer = document.createElement('div');
+    tree.appendChild(colContainer);
+
+    dbRow.addEventListener('click', () => mongoToggleDb(db, dbRow, colContainer));
+  }
+}
+
+async function mongoToggleDb(db, row, container) {
+  const arrow = row.querySelector('.ft-arrow');
+  if (_mongoExpanded.has(db)) {
+    _mongoExpanded.delete(db);
+    container.innerHTML = '';
+    arrow.textContent = '▶';
+    return;
+  }
+  _mongoExpanded.add(db);
+  arrow.textContent = '▼';
+  container.innerHTML = '<div class="mg-loading" style="padding-left:22px">⏳ cargando…</div>';
+
+  const data = await fetch(`/api/mongo/collections?db=${encodeURIComponent(db)}`).then(r=>r.json()).catch(()=>({error:'error'}));
+  container.innerHTML = '';
+  if (data.error) {
+    container.innerHTML = `<div class="mg-err" style="padding-left:22px">⚠️ ${data.error}</div>`;
+    return;
+  }
+  for (const col of data.collections) {
+    const row2 = document.createElement('div');
+    row2.className = 'ft-item mg-col';
+    row2.style.setProperty('--depth', 1);
+    row2.innerHTML = `<span class="ft-arrow"></span><span>📋</span><span class="ft-name">${col.name}</span><span class="mg-count">${col.count != null ? col.count.toLocaleString() : ''}</span>`;
+    row2.addEventListener('click', () => mongoOpenCollection(db, col.name));
+    container.appendChild(row2);
+  }
+}
+
+async function mongoOpenCollection(db, col) {
+  // Marcar activo
+  document.querySelectorAll('.mg-col.active').forEach(r => r.classList.remove('active'));
+  event?.currentTarget?.classList?.add?.('active');
+
+  const tabId = `mongo::${db}::${col}`;
+  const existing = _openTabs.findIndex(t => t.path === tabId);
+  if (existing >= 0) { ideActivateTab(existing); return; }
+
+  const data = await fetch(`/api/mongo/docs?db=${encodeURIComponent(db)}&col=${encodeURIComponent(col)}&limit=50`)
+    .then(r => r.json()).catch(() => ({ error: 'error' }));
+
+  const content = data.error
+    ? JSON.stringify({ error: data.error }, null, 2)
+    : JSON.stringify(data.docs, null, 2);
+
+  _openTabs.push({ path: tabId, name: `${db} › ${col}`, ext: 'json', content });
+  ideActivateTab(_openTabs.length - 1);
+}
 
 // ── IDE ───────────────────────────────────────────────────────────
 let _ideRoot = null;       // ruta raíz cargada

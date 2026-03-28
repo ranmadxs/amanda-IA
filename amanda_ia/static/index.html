@@ -796,9 +796,132 @@ body.ide-mode #ide-activity { display: flex; }
 .mg-db   { color: #00ed64; font-weight: 600; }
 .mg-col  { color: #cccccc; }
 .mg-col:hover { background: #094771; color: #fff; }
+.mg-col.active { background: #094771; color: #fff; }
 .mg-count { color: #555; font-size: 0.68rem; margin-left: auto; padding-right: 8px; }
 .mg-loading { color: #555; padding: 8px 14px; font-size: 0.78rem; }
 .mg-err { color: #e74c3c; padding: 8px 14px; font-size: 0.78rem; }
+
+/* MongoDB Query Panel (NoSQLBooster style) */
+#mongo-query-panel {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  background: #1e1e1e;
+  overflow: hidden;
+  min-width: 0;
+}
+body.ide-mode #mongo-query-panel.visible { display: flex; }
+body.ide-mode #mongo-query-panel.visible ~ #ide-editor { display: none; }
+
+#mq-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #2d2d2d;
+  border-bottom: 1px solid #3c3c3c;
+  flex-shrink: 0;
+}
+#mq-collection-label {
+  font-size: 0.78rem;
+  color: #00ed64;
+  font-weight: 600;
+  flex: 1;
+}
+#mq-limit-input {
+  width: 54px;
+  background: #3c3c3c;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #ccc;
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  text-align: center;
+}
+#mq-run-btn {
+  background: #00a550;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+#mq-run-btn:hover { background: #00c060; }
+#mq-run-btn:disabled { background: #444; cursor: default; }
+
+#mq-editor-area {
+  height: 110px;
+  flex-shrink: 0;
+  border-bottom: 1px solid #3c3c3c;
+  position: relative;
+}
+#mq-query-input {
+  width: 100%;
+  height: 100%;
+  background: #1a1a2e;
+  border: none;
+  outline: none;
+  color: #a9dc76;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 0.8rem;
+  padding: 10px 14px;
+  resize: none;
+  box-sizing: border-box;
+  tab-size: 2;
+}
+#mq-status {
+  padding: 4px 12px;
+  font-size: 0.7rem;
+  color: #666;
+  background: #252526;
+  border-bottom: 1px solid #3c3c3c;
+  flex-shrink: 0;
+}
+#mq-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+#mq-results::-webkit-scrollbar { width: 8px; }
+#mq-results::-webkit-scrollbar-thumb { background: #424242; }
+
+.mq-doc-row {
+  border-bottom: 1px solid #2a2a2a;
+  font-size: 0.76rem;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+.mq-doc-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  color: #858585;
+  user-select: none;
+}
+.mq-doc-header:hover { background: #2a2a2a; }
+.mq-doc-idx { color: #555; min-width: 28px; font-size: 0.68rem; }
+.mq-doc-id  { color: #9cdcfe; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mq-doc-arrow { font-size: 0.6rem; color: #555; transition: transform .15s; }
+.mq-doc-row.open .mq-doc-arrow { transform: rotate(90deg); }
+.mq-doc-body { display: none; padding: 0 10px 8px 44px; }
+.mq-doc-row.open .mq-doc-body { display: block; }
+
+.mq-field { display: flex; gap: 6px; padding: 1px 0; }
+.mq-key   { color: #9cdcfe; }
+.mq-colon { color: #858585; }
+.mq-val-str  { color: #ce9178; }
+.mq-val-num  { color: #b5cea8; }
+.mq-val-bool { color: #569cd6; }
+.mq-val-null { color: #569cd6; }
+.mq-val-id   { color: #dcdcaa; }
+.mq-val-obj  { color: #858585; cursor: pointer; }
+.mq-val-arr  { color: #858585; }
 
 /* Sidebar file tree */
 #ide-sidebar {
@@ -1084,6 +1207,22 @@ body.ide-mode #chat-panel {
 </div>
 
 <div class="ide-resizer" id="resizer-sidebar"></div>
+
+<!-- IDE: MongoDB Query Panel -->
+<div id="mongo-query-panel">
+  <div id="mq-toolbar">
+    <span id="mq-collection-label">—</span>
+    <label style="font-size:0.72rem;color:#888">limit</label>
+    <input id="mq-limit-input" type="number" value="50" min="1" max="1000">
+    <button id="mq-run-btn" onclick="mqRun()">▶ Run</button>
+  </div>
+  <div id="mq-editor-area">
+    <textarea id="mq-query-input" spellcheck="false" autocomplete="off"
+      placeholder="db.collection.find({ })" onkeydown="if((e=event).ctrlKey&&e.key==='Enter'){e.preventDefault();mqRun();}"></textarea>
+  </div>
+  <div id="mq-status"></div>
+  <div id="mq-results"></div>
+</div>
 
 <!-- IDE: Editor -->
 <div id="ide-editor">
@@ -1835,6 +1974,8 @@ function ideSwitchPanel(name) {
   document.getElementById('btn-mongo').classList.toggle('active', name === 'mongo');
   document.getElementById('btn-terminal').classList.toggle('active', name === 'terminal');
   document.body.classList.toggle('term-active', name === 'terminal');
+  // Si cambia de panel, ocultar query panel mongo
+  if (name !== 'mongo') mqHide();
   if (name === 'mongo') mongoInit();
   if (name === 'terminal') { termFocus().then(() => testLoadFiles()); }
 }
@@ -2114,29 +2255,174 @@ async function mongoToggleDb(db, row, container) {
     row2.className = 'ft-item mg-col';
     row2.style.setProperty('--depth', 1);
     row2.innerHTML = `<span class="ft-arrow"></span><span>📋</span><span class="ft-name">${col.name}</span><span class="mg-count">${col.count != null ? col.count.toLocaleString() : ''}</span>`;
-    row2.addEventListener('click', () => mongoOpenCollection(db, col.name));
+    row2.addEventListener('click', () => mongoOpenCollection(db, col.name, row2));
     container.appendChild(row2);
   }
 }
 
-async function mongoOpenCollection(db, col) {
-  // Marcar activo
+// ── MongoDB Query Panel ───────────────────────────────────────────
+let _mqDb = null, _mqCol = null;
+
+function mongoOpenCollection(db, col, rowEl) {
   document.querySelectorAll('.mg-col.active').forEach(r => r.classList.remove('active'));
-  event?.currentTarget?.classList?.add?.('active');
+  if (rowEl) rowEl.classList.add('active');
+  _mqDb  = db;
+  _mqCol = col;
+  document.getElementById('mq-collection-label').textContent = `${db}  ›  ${col}`;
+  document.getElementById('mq-query-input').value = `db.${col}.find({ })`;
+  document.getElementById('mq-status').textContent = '';
+  document.getElementById('mq-results').innerHTML = '';
+  // Mostrar panel query, ocultar editor de archivos
+  document.getElementById('mongo-query-panel').classList.add('visible');
+  document.getElementById('ide-editor').style.display = 'none';
+  mqRun();
+}
 
-  const tabId = `mongo::${db}::${col}`;
-  const existing = _openTabs.findIndex(t => t.path === tabId);
-  if (existing >= 0) { ideActivateTab(existing); return; }
+function mqHide() {
+  document.getElementById('mongo-query-panel').classList.remove('visible');
+  document.getElementById('ide-editor').style.display = '';
+}
 
-  const data = await fetch(`/api/mongo/docs?db=${encodeURIComponent(db)}&col=${encodeURIComponent(col)}&limit=50`)
-    .then(r => r.json()).catch(() => ({ error: 'error' }));
+async function mqRun() {
+  if (!_mqDb || !_mqCol) return;
+  const raw   = document.getElementById('mq-query-input').value.trim();
+  const limit = parseInt(document.getElementById('mq-limit-input').value) || 50;
+  const btn   = document.getElementById('mq-run-btn');
+  const status = document.getElementById('mq-status');
+  const results = document.getElementById('mq-results');
 
-  const content = data.error
-    ? JSON.stringify({ error: data.error }, null, 2)
-    : JSON.stringify(data.docs, null, 2);
+  // Extraer el filtro del string tipo "db.col.find({ ... })"
+  let filter = {};
+  try {
+    const m = raw.match(/\.find\s*\(\s*([\s\S]*?)\s*(?:,[\s\S]*)?\)/);
+    if (m && m[1].trim()) {
+      // Evaluar JSON5-like (permite unquoted keys básico)
+      filter = Function('"use strict"; return (' + m[1] + ')')();
+    }
+  } catch(e) {
+    status.textContent = '⚠ Filtro inválido: ' + e.message;
+    return;
+  }
 
-  _openTabs.push({ path: tabId, name: `${db} › ${col}`, ext: 'json', content });
-  ideActivateTab(_openTabs.length - 1);
+  btn.disabled = true;
+  btn.textContent = '⏳';
+  status.textContent = 'Ejecutando…';
+  results.innerHTML = '';
+
+  const t0 = Date.now();
+  const data = await fetch(
+    `/api/mongo/query?db=${encodeURIComponent(_mqDb)}&col=${encodeURIComponent(_mqCol)}&limit=${limit}&filter=${encodeURIComponent(JSON.stringify(filter))}`
+  ).then(r => r.json()).catch(e => ({ error: e.message }));
+
+  btn.disabled = false;
+  btn.textContent = '▶ Run';
+
+  if (data.error) { status.textContent = '⚠ ' + data.error; return; }
+
+  const ms   = Date.now() - t0;
+  const docs = data.docs || [];
+  status.textContent = `${docs.length} de ${data.total?.toLocaleString() ?? '?'} documentos  ·  ${ms}ms`;
+
+  if (!docs.length) { results.innerHTML = '<div style="padding:1rem;color:#555;font-size:0.8rem">Sin resultados</div>'; return; }
+
+  docs.forEach((doc, i) => {
+    const row = document.createElement('div');
+    row.className = 'mq-doc-row';
+
+    const hdr = document.createElement('div');
+    hdr.className = 'mq-doc-header';
+    hdr.innerHTML = `<span class="mq-doc-arrow">▶</span><span class="mq-doc-idx">${i + 1}</span>`
+      + `<span class="mq-doc-id">${mqSummary(doc)}</span>`;
+    hdr.onclick = () => row.classList.toggle('open');
+
+    const body = document.createElement('div');
+    body.className = 'mq-doc-body';
+    body.appendChild(mqRenderObj(doc));
+
+    row.appendChild(hdr);
+    row.appendChild(body);
+    results.appendChild(row);
+  });
+}
+
+function mqSummary(doc) {
+  const id = doc._id ? `<span style="color:#dcdcaa">_id:</span> <span style="color:#9cdcfe">${doc._id}</span>` : '';
+  const rest = Object.keys(doc).filter(k => k !== '_id').slice(0, 3)
+    .map(k => `<span style="color:#858585">${k}:</span> <span style="color:#ce9178">${mqValPreview(doc[k])}</span>`)
+    .join('  ');
+  return [id, rest].filter(Boolean).join('  ');
+}
+
+function mqValPreview(v) {
+  if (v === null) return 'null';
+  if (typeof v === 'object') return Array.isArray(v) ? `[…${v.length}]` : '{…}';
+  const s = String(v);
+  return s.length > 40 ? s.slice(0, 40) + '…' : s;
+}
+
+function mqRenderObj(obj, depth) {
+  depth = depth || 0;
+  const frag = document.createDocumentFragment();
+  for (const [k, v] of Object.entries(obj)) {
+    const line = document.createElement('div');
+    line.className = 'mq-field';
+    line.style.paddingLeft = (depth * 14) + 'px';
+    const key  = document.createElement('span');
+    key.className = 'mq-key';
+    key.textContent = k + ':';
+    line.appendChild(key);
+    line.appendChild(mqRenderVal(v, depth));
+    frag.appendChild(line);
+  }
+  return frag;
+}
+
+function mqRenderVal(v, depth) {
+  const s = document.createElement('span');
+  if (v === null)            { s.className = 'mq-val-null'; s.textContent = 'null'; }
+  else if (v === true || v === false) { s.className = 'mq-val-bool'; s.textContent = String(v); }
+  else if (typeof v === 'number')     { s.className = 'mq-val-num';  s.textContent = String(v); }
+  else if (typeof v === 'string' && /^[0-9a-f]{24}$/i.test(v)) {
+    s.className = 'mq-val-id'; s.textContent = `"${v}"`;
+  }
+  else if (typeof v === 'string') { s.className = 'mq-val-str'; s.textContent = `"${v}"`; }
+  else if (Array.isArray(v)) {
+    if (!v.length) { s.className = 'mq-val-arr'; s.textContent = '[ ]'; }
+    else {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'padding-left:14px';
+      v.forEach((item, i) => {
+        const row = document.createElement('div');
+        row.className = 'mq-field';
+        const idx = document.createElement('span');
+        idx.className = 'mq-key'; idx.textContent = i + ':';
+        row.appendChild(idx);
+        row.appendChild(mqRenderVal(item, depth + 1));
+        wrap.appendChild(row);
+      });
+      s.className = 'mq-val-arr'; s.textContent = `▸ Array[${v.length}]`;
+      s.style.cursor = 'pointer';
+      s.onclick = () => { const showing = wrap.style.display !== 'none'; wrap.style.display = showing ? 'none' : 'block'; };
+      const container = document.createDocumentFragment();
+      container.appendChild(s);
+      container.appendChild(wrap);
+      wrap.style.display = 'none';
+      return container;
+    }
+  }
+  else if (typeof v === 'object') {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'padding-left:14px';
+    wrap.appendChild(mqRenderObj(v, depth + 1));
+    s.className = 'mq-val-obj'; s.textContent = `▸ Object{${Object.keys(v).length}}`;
+    s.onclick = () => { wrap.style.display = wrap.style.display !== 'none' ? 'none' : 'block'; };
+    const container = document.createDocumentFragment();
+    container.appendChild(s);
+    container.appendChild(wrap);
+    wrap.style.display = 'none';
+    return container;
+  }
+  return s;
 }
 
 // ── IDE ───────────────────────────────────────────────────────────

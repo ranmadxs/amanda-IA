@@ -206,6 +206,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_mongo_collections()
         elif path == "/api/mongo/docs":
             self._handle_mongo_docs()
+        elif path == "/api/mongo/query":
+            self._handle_mongo_query()
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -532,6 +534,48 @@ class _Handler(BaseHTTPRequestHandler):
                     return [_convert(i) for i in obj]
                 return obj
             self._send_json({"docs": _convert(docs)})
+        except Exception as e:
+            self._send_json({"error": str(e)}, 500)
+
+    def _handle_mongo_query(self) -> None:
+        import os, json as _json
+        from urllib.parse import parse_qs, urlparse
+        mongodb_uri = os.getenv("MONGODB_URI", "")
+        if not mongodb_uri:
+            self._send_json({"error": "MONGODB_URI not set"}, 503)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        db_name  = qs.get("db",  [""])[0]
+        col_name = qs.get("col", [""])[0]
+        limit    = int(qs.get("limit", ["50"])[0])
+        filter_s = qs.get("filter", ["{}"])[0]
+        sort_s   = qs.get("sort",   ["{}"])[0]
+        if not db_name or not col_name:
+            self._send_json({"error": "db and col required"}, 400)
+            return
+        try:
+            filter_doc = _json.loads(filter_s) if filter_s else {}
+            sort_doc   = _json.loads(sort_s)   if sort_s   else {}
+        except Exception:
+            self._send_json({"error": "invalid filter/sort JSON"}, 400)
+            return
+        try:
+            from bson import ObjectId
+            from pymongo import MongoClient, ASCENDING, DESCENDING
+            from datetime import datetime as _dt, date as _date
+            client = MongoClient(mongodb_uri, serverSelectionTimeoutMS=3000)
+            cursor = client[db_name][col_name].find(filter_doc, limit=limit)
+            if sort_doc:
+                cursor = cursor.sort(list(sort_doc.items()))
+            docs = list(cursor)
+            total = client[db_name][col_name].count_documents(filter_doc)
+            def _convert(obj):
+                if isinstance(obj, ObjectId): return str(obj)
+                if isinstance(obj, (_dt, _date)): return obj.isoformat()
+                if isinstance(obj, dict): return {k: _convert(v) for k, v in obj.items()}
+                if isinstance(obj, list): return [_convert(i) for i in obj]
+                return obj
+            self._send_json({"docs": _convert(docs), "total": total, "limit": limit})
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
 

@@ -1405,6 +1405,17 @@ function moveFocus(dir) {
 
 // ── Messages ─────────────────────────────────────────────────────
 
+// ── Copy fallback (HTTP / no-localhost) ───────────────────────────
+function _copyFallback(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  ta.remove();
+}
+
 // ── Feedback ──────────────────────────────────────────────────────
 let _lastUserText = '';
 
@@ -1417,8 +1428,13 @@ function addFeedbackBar(wrap, question, answerFn, planFn) {
   copy.className = 'fb-btn';
   copy.textContent = '📋';
   copy.title = 'Copiar respuesta';
-  copy.onclick = async () => {
-    await navigator.clipboard.writeText(answerFn());
+  copy.onclick = () => {
+    const text = answerFn();
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).catch(() => _copyFallback(text));
+    } else {
+      _copyFallback(text);
+    }
     copy.textContent = '✅';
     setTimeout(() => { copy.textContent = '📋'; }, 1500);
   };

@@ -36,7 +36,11 @@ _IMG_RE = re.compile(r"\[AIA_IMG:[^\]]+\]")
 
 
 def _strip(text: str) -> str:
-    text = _IMG_RE.sub("", text)
+    import urllib.parse
+    def _img_to_url(m: re.Match) -> str:
+        img_path = m.group(0)[9:-1]  # extrae path de [AIA_IMG:path]
+        return f"[AIA_IMG:/api/image?path={urllib.parse.quote(img_path)}]"
+    text = _IMG_RE.sub(_img_to_url, text)
     return _RICH_RE.sub("", text).strip()
 
 
@@ -181,6 +185,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(_server_info())
         elif path == "/api/watch":
             self._handle_watch()
+        elif path == "/api/image":
+            self._handle_image()
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -264,6 +270,24 @@ class _Handler(BaseHTTPRequestHandler):
             _sse("log", {"entry": entry})
 
         _sse("response", {"response": _strip(result_holder[0] or "")})
+
+    def _handle_image(self) -> None:
+        from urllib.parse import parse_qs, urlparse
+        qs = parse_qs(urlparse(self.path).query)
+        img_path = qs.get("path", [""])[0]
+        p = Path(img_path)
+        if not p.exists() or p.suffix.lower() not in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+            self._send_json({"error": "not found"}, 404)
+            return
+        data = p.read_bytes()
+        mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                "gif": "image/gif", "webp": "image/webp"}.get(p.suffix.lower().lstrip("."), "image/png")
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(data)
 
     def _handle_watch(self) -> None:
         """SSE: reenvía el stream de localhost:8003/live al browser."""

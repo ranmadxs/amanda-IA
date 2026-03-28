@@ -615,6 +615,27 @@ function moveFocus(dir) {
 }
 
 // ── Messages ─────────────────────────────────────────────────────
+
+// Rellena un elemento .msg-bubble con texto e imágenes inline [AIA_IMG:url]
+function fillBubble(el, text) {
+  const IMG_RE = /\[AIA_IMG:([^\]]+)\]/g;
+  let last = 0, m;
+  el.innerHTML = '';
+  while ((m = IMG_RE.exec(text)) !== null) {
+    if (m.index > last) {
+      el.appendChild(document.createTextNode(text.slice(last, m.index)));
+    }
+    const img = document.createElement('img');
+    img.src = m[1];
+    img.style.cssText = 'max-width:100%;border-radius:6px;margin-top:0.4rem;display:block';
+    el.appendChild(img);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) {
+    el.appendChild(document.createTextNode(text.slice(last)));
+  }
+}
+
 function addMsg(role, text) {
   const wrap = document.createElement('div');
   wrap.className = `msg ${role}`;
@@ -623,7 +644,7 @@ function addMsg(role, text) {
   label.textContent = role === 'user' ? 'tú' : (currentMod?.displayName || 'AiA');
   const bubble = document.createElement('div');
   bubble.className = 'msg-bubble';
-  bubble.textContent = text;
+  fillBubble(bubble, text);
   wrap.appendChild(label);
   wrap.appendChild(bubble);
   messages.appendChild(wrap);
@@ -750,7 +771,7 @@ function createLiveAiMsg() {
     dots.remove();
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
-    bubble.textContent = text;
+    fillBubble(bubble, text);
     wrap.appendChild(bubble);
     scrollDown();
   }

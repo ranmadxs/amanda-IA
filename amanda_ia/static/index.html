@@ -1394,7 +1394,7 @@ function moveFocus(dir) {
 // ── Feedback ──────────────────────────────────────────────────────
 let _lastUserText = '';
 
-function addFeedbackBar(wrap, question, answerFn) {
+function addFeedbackBar(wrap, question, answerFn, planFn) {
   const bar = document.createElement('div');
   bar.className = 'msg-feedback';
   const up   = document.createElement('button');
@@ -1409,7 +1409,7 @@ function addFeedbackBar(wrap, question, answerFn) {
     up.disabled = down.disabled = true;
     await fetch('/api/feedback', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ mode: currentMod?.key || '', question, answer: answerFn(), rating })
+      body: JSON.stringify({ mode: currentMod?.key || '', question, answer: answerFn(), plan: planFn ? planFn() : [], rating })
     });
     up.disabled = down.disabled = false;
   };
@@ -1529,6 +1529,7 @@ function createLiveAiMsg() {
 
   let count = 0;
   const servers = new Set();
+  const _planEntries = [];
 
   function _updateSummary() {
     countEl.textContent = `${count} paso${count !== 1 ? 's' : ''}`;
@@ -1539,6 +1540,7 @@ function createLiveAiMsg() {
 
   function appendLog(entry) {
     count++;
+    _planEntries.push(entry);
     const cls = classifyLog(entry);
 
     // Rastrear servidores MCP
@@ -1589,7 +1591,7 @@ function createLiveAiMsg() {
     bubble.className = 'msg-bubble';
     fillBubble(bubble, text);
     wrap.appendChild(bubble);
-    addFeedbackBar(wrap, _question, () => bubble.textContent);
+    addFeedbackBar(wrap, _question, () => bubble.textContent, () => _planEntries);
     scrollDown();
   }
 

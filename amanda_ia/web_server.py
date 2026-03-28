@@ -373,6 +373,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "mode":     body.get("mode", ""),
                 "question": body.get("question", ""),
                 "answer":   body.get("answer", ""),
+                "plan":     body.get("plan", []),
                 "rating":   rating,
                 "ts":       datetime.utcnow(),
             })

@@ -664,6 +664,10 @@ function createLiveAiMsg() {
   const summary = document.createElement('summary');
   summary.className = 'log-summary';
 
+  const toggleEl = document.createElement('span');
+  toggleEl.className = 'log-toggle';
+  toggleEl.textContent = '▶ ';
+
   const countEl  = document.createElement('span');
   countEl.className = 'log-count';
   countEl.textContent = '0 pasos';
@@ -671,8 +675,13 @@ function createLiveAiMsg() {
   const serversEl = document.createElement('span');
   serversEl.className = 'log-servers';
 
+  summary.appendChild(toggleEl);
   summary.appendChild(countEl);
   summary.appendChild(serversEl);
+
+  details.addEventListener('toggle', () => {
+    toggleEl.textContent = details.open ? '▼ ' : '▶ ';
+  });
   details.appendChild(summary);
 
   const body = document.createElement('div');

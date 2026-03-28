@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>amanda-IA</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <style>
 :root {
   --accent:     #7f8c8d;
@@ -211,6 +212,59 @@ body {
   38% { transform: translateY(-7px); opacity: 1; }
 }
 
+/* ── Log panel ──────────────────────────────────────────── */
+.log-panel {
+  margin-top: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.7rem;
+  background: #0a0a14;
+  overflow: hidden;
+}
+.log-summary {
+  cursor: pointer;
+  padding: 0.3rem 0.6rem;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  user-select: none;
+  list-style: none;
+}
+.log-summary::-webkit-details-marker { display: none; }
+.log-summary:hover { color: var(--text); }
+.log-toggle { font-size: 0.6rem; transition: transform .2s; }
+details[open] .log-toggle { transform: rotate(90deg); }
+.log-count { color: var(--accent); font-weight: 600; }
+.log-servers { opacity: .6; }
+.log-body {
+  padding: 0.4rem 0.6rem 0.6rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.log-entry {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.68rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.log-entry.log-plan   { color: #a29bfe; background: #1a1530; }
+.log-entry.log-llm    { color: #74b9ff; background: #0d1a2a; }
+.log-entry.log-mcp    { color: #55efc4; background: #0a1f18; }
+.log-entry.log-other  { color: var(--text-dim); }
+.log-mermaid {
+  background: #0a0a14;
+  padding: 0.4rem;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+.log-mermaid svg { max-width: 100%; height: auto; }
+
 /* ── Input area ─────────────────────────────────────────── */
 #input-wrap {
   position: relative;
@@ -363,6 +417,7 @@ const slashMenu  = document.getElementById('slash-menu');
 
 // ── Boot ─────────────────────────────────────────────────────────
 async function init() {
+  mermaid.initialize({ startOnLoad: false, theme: 'dark' });
   try {
     const [modsRes, cmdsRes, infoRes] = await Promise.all([
       fetch('/api/mods'), fetch('/api/commands'), fetch('/api/info')
@@ -559,7 +614,7 @@ function moveFocus(dir) {
 }
 
 // ── Messages ─────────────────────────────────────────────────────
-function addMsg(role, text) {
+function addMsg(role, text, logs) {
   const wrap = document.createElement('div');
   wrap.className = `msg ${role}`;
   const label = document.createElement('div');
@@ -570,8 +625,78 @@ function addMsg(role, text) {
   bubble.textContent = text;
   wrap.appendChild(label);
   wrap.appendChild(bubble);
+  if (role === 'ai' && logs && logs.length) {
+    wrap.appendChild(buildLogPanel(logs));
+  }
   messages.appendChild(wrap);
   scrollDown();
+}
+
+// ── Log panel ─────────────────────────────────────────────────────
+function classifyLog(entry) {
+  if (entry.startsWith('PLAN>>')) return 'log-plan';
+  if (entry.startsWith('LLM>>'))  return 'log-llm';
+  if (entry.includes('>>mcp.'))   return 'log-mcp';
+  return 'log-other';
+}
+
+function planToMermaid(planText) {
+  const text = planText.replace(/^PLAN>>\s*/, '').trim();
+  const parts = text.split(/\s*[-→>]+\s*/).map(s => s.trim()).filter(Boolean);
+  if (parts.length < 2) return null;
+  const nodes = parts.map((s, i) => `  N${i}["${s.replace(/"/g,"'")}"]`).join('\n');
+  const edges = parts.slice(0,-1).map((_,i) => `  N${i} --> N${i+1}`).join('\n');
+  return `flowchart LR\n${nodes}\n${edges}`;
+}
+
+function buildLogPanel(logs) {
+  const mcpCalls = logs.filter(e => e.includes('>>mcp.'));
+  const servers  = [...new Set(mcpCalls.map(e => {
+    const m = e.match(/mcp\.([^.]+)\./);
+    return m ? m[1] : null;
+  }).filter(Boolean))];
+
+  const details = document.createElement('details');
+  details.className = 'log-panel';
+
+  const summary = document.createElement('summary');
+  summary.className = 'log-summary';
+  summary.innerHTML = `<span class="log-toggle">▶</span>`
+    + `<span class="log-count">${logs.length} paso${logs.length!==1?'s':''}</span>`
+    + (servers.length ? `<span class="log-servers">· ${servers.map(s=>`🔌 ${s}`).join(' ')}</span>` : '');
+  details.appendChild(summary);
+
+  const body = document.createElement('div');
+  body.className = 'log-body';
+
+  for (const entry of logs) {
+    const cls = classifyLog(entry);
+
+    if (cls === 'log-plan') {
+      const mermaidDef = planToMermaid(entry);
+      if (mermaidDef) {
+        const mermaidEl = document.createElement('div');
+        mermaidEl.className = 'log-mermaid';
+        const id = 'mmd-' + Math.random().toString(36).slice(2);
+        mermaid.render(id, mermaidDef).then(({svg}) => {
+          mermaidEl.innerHTML = svg;
+        }).catch(() => {
+          mermaidEl.textContent = entry;
+          mermaidEl.className = 'log-entry log-plan';
+        });
+        body.appendChild(mermaidEl);
+        continue;
+      }
+    }
+
+    const el = document.createElement('div');
+    el.className = `log-entry ${cls}`;
+    el.textContent = entry;
+    body.appendChild(el);
+  }
+
+  details.appendChild(body);
+  return details;
 }
 
 function addSystemMsg(text) {
@@ -605,28 +730,22 @@ function scrollDown() { messages.scrollTop = messages.scrollHeight; }
 async function send() {
   const text = input.value.trim();
 
-  // Si está en modo live, el botón detiene
   if (liveSource) { stopWatch(); return; }
-
   if (!text || busy) return;
 
-  // /watch: abrir EventSource
   if (text.toLowerCase() === '/watch') {
-    input.value = '';
-    input.style.height = 'auto';
-    hideSlashMenu();
-    startWatch();
-    return;
+    input.value = ''; input.style.height = 'auto';
+    hideSlashMenu(); startWatch(); return;
   }
 
   hideSlashMenu();
-  busy = true;
-  sendBtn.disabled = true;
-  input.value = '';
-  input.style.height = 'auto';
+  busy = true; sendBtn.disabled = true;
+  input.value = ''; input.style.height = 'auto';
 
   addMsg('user', text);
   addTyping();
+
+  const logs = [];
 
   try {
     const res = await fetch('/api/chat', {
@@ -634,20 +753,62 @@ async function send() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text })
     });
-    const data = await res.json();
-    removeTyping();
-    if (data.response === '__watch__') {
-      startWatch();
-    } else {
+
+    // ── Si es JSON plano (respuesta rápida sin SSE) ──
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('application/json')) {
+      const data = await res.json();
+      removeTyping();
+      if (data.response === '__watch__') { startWatch(); return; }
       addMsg('ai', data.response || data.error || '(sin respuesta)');
+      return;
     }
+
+    // ── SSE streaming ──
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    const parseSSE = (chunk) => {
+      buf += chunk;
+      const events = [];
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        const block = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        let type = '', data = '';
+        for (const line of block.split('\n')) {
+          if (line.startsWith('event: ')) type = line.slice(7).trim();
+          else if (line.startsWith('data: '))  data = line.slice(6).trim();
+        }
+        if (type && data) events.push({ type, data: JSON.parse(data) });
+      }
+      return events;
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      for (const ev of parseSSE(decoder.decode(value, { stream: true }))) {
+        if (ev.type === 'log') {
+          logs.push(ev.data.entry);
+        } else if (ev.type === 'response') {
+          removeTyping();
+          const resp = ev.data.response;
+          if (resp === '__watch__') { startWatch(); return; }
+          addMsg('ai', resp || '(sin respuesta)', logs);
+          return;
+        }
+      }
+    }
+    removeTyping();
+    addMsg('ai', '(sin respuesta)', logs);
+
   } catch(e) {
     removeTyping();
     addMsg('ai', 'Error de conexión: ' + e.message);
   } finally {
-    busy = false;
-    sendBtn.disabled = false;
-    input.focus();
+    busy = false; sendBtn.disabled = false; input.focus();
   }
 }
 

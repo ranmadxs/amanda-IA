@@ -214,22 +214,56 @@ class _Handler(BaseHTTPRequestHandler):
 
         text_lower = text.lower()
 
+        # Respuestas inmediatas sin SSE
         if text_lower == "/watch":
             self._send_json({"response": "__watch__"})
             return
-
         if text_lower == "/help" and not _web_mode:
             self._send_json({"response": _help_no_mode()})
             return
 
-        def _run() -> str:
+        # ── SSE streaming: logs en paralelo a la ejecución ──────────────────
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+        def _sse(event: str, data: dict) -> None:
+            try:
+                msg = f"event: {event}\ndata: {json.dumps(data)}\n\n"
+                self.wfile.write(msg.encode())
+                self.wfile.flush()
+            except OSError:
+                pass
+
+        phase: dict = {"value": "", "log": []}
+        result_holder: list = [None]
+        done = threading.Event()
+
+        def _run() -> None:
             with _lock:
                 if _web_mode is not None:
                     agent_mod._active_mode = _web_mode
-                return process(text)
+                result_holder[0] = process(text, phase=phase)
+            done.set()
 
-        result = _run()
-        self._send_json({"response": _strip(result)})
+        threading.Thread(target=_run, daemon=True).start()
+
+        cursor = 0
+        while not done.is_set():
+            logs = phase.get("log", [])
+            while cursor < len(logs):
+                _sse("log", {"entry": logs[cursor]})
+                cursor += 1
+            done.wait(0.1)
+
+        # flush logs restantes
+        for entry in phase.get("log", [])[cursor:]:
+            _sse("log", {"entry": entry})
+
+        _sse("response", {"response": _strip(result_holder[0] or "")})
 
     def _handle_watch(self) -> None:
         """SSE: reenvía el stream de localhost:8003/live al browser."""

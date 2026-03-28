@@ -449,18 +449,80 @@ body.mode-flash #banner { animation: flash .35s ease; }
 body.ide-mode #ide-statusbar { display: flex; }
 #ide-statusbar-version { opacity: 0.9; font-size: 0.58rem; white-space: nowrap; overflow: hidden; text-overflow: clip; }
 
-/* ── Terminal IDE ───────────────────────────────────────── */
+/* ── Terminal IDE (iTerm2 style) ─────────────────────────── */
 #ide-terminal {
   display: none;
   flex-direction: column;
-  background: #0d0d0d;
   flex: 1;
   min-width: 0;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.78rem;
+  background: #1a1b1e;
+  font-family: 'SF Mono', 'Fira Code', 'Menlo', monospace;
+  font-size: 0.82rem;
 }
 body.ide-mode.term-active #ide-editor   { display: none; }
 body.ide-mode.term-active #ide-terminal { display: flex; }
+#term-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #2c2d30;
+  padding: 0.3rem 0.8rem;
+  border-bottom: 1px solid #3a3b3e;
+  flex-shrink: 0;
+}
+#term-title {
+  font-size: 0.72rem;
+  color: #9b9ea3;
+  letter-spacing: 0.03em;
+}
+#term-clear-btn {
+  font-size: 0.68rem;
+  color: #6b6e73;
+  cursor: pointer;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  border: 1px solid #3a3b3e;
+}
+#term-clear-btn:hover { color: #ccc; border-color: #666; }
+#term-output {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.6rem 1rem;
+  color: #d4d4d4;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.55;
+  scrollbar-width: thin;
+  scrollbar-color: #3a3b3e transparent;
+}
+.term-line-cmd  { color: #7ec8e3; }
+.term-line-err  { color: #f28b82; }
+.term-line-exit { color: #5f6368; font-style: italic; }
+#term-input-row {
+  display: flex;
+  align-items: center;
+  padding: 0.4rem 1rem;
+  border-top: 1px solid #2c2d30;
+  background: #1a1b1e;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+#term-prompt {
+  color: #80d740;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  user-select: none;
+}
+#term-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #d4d4d4;
+  font-family: inherit;
+  font-size: inherit;
+  caret-color: #80d740;
+}
 #term-output {
   flex: 1;
   overflow-y: auto;
@@ -863,13 +925,16 @@ body.ide-mode #chat-panel {
   </div>
 </div>
 
-<!-- IDE: Terminal -->
-<div id="ide-terminal" style="display:none">
+<!-- IDE: Terminal (reemplaza editor, misma área) -->
+<div id="ide-terminal">
+  <div id="term-titlebar">
+    <span id="term-title">zsh</span>
+    <span id="term-clear-btn" title="Limpiar" onclick="termClear()">clear</span>
+  </div>
   <div id="term-output"></div>
   <div id="term-input-row">
     <span id="term-prompt">❯</span>
-    <input id="term-input" type="text" autocomplete="off" spellcheck="false" placeholder="comando…"/>
-    <span id="term-clear-btn" title="Limpiar" onclick="termClear()">⌫ clear</span>
+    <input id="term-input" type="text" autocomplete="off" spellcheck="false" placeholder=""/>
   </div>
 </div>
 
@@ -1454,7 +1519,6 @@ function ideSwitchPanel(name) {
   document.getElementById('btn-explorer').classList.toggle('active', name === 'explorer');
   document.getElementById('btn-mongo').classList.toggle('active', name === 'mongo');
   document.getElementById('btn-terminal').classList.toggle('active', name === 'terminal');
-  // Terminal: ocupa espacio del editor
   document.body.classList.toggle('term-active', name === 'terminal');
   if (name === 'mongo') mongoInit();
   if (name === 'terminal') termFocus();

@@ -551,9 +551,13 @@ class _SlashCompleter(Completer):
             yield Completion(cmd, start_position=-len(text))
 
 
-def _get_servers_by_mode(servers: list, mode: str) -> list[str]:
-    """MCPs que tienen modo igual al indicado. Soporta modo coma-separado."""
-    return [s["name"] for s in servers if server_in_modo(s, mode) and s.get("name")]
+def _get_servers_by_mode(servers: list, mode: str, as_list: bool = False) -> list:
+    """MCPs que tienen modo igual al indicado. Soporta modo coma-separado.
+    as_list=True devuelve objetos completos (para clasificación); False devuelve nombres."""
+    filtered = [s for s in servers if server_in_modo(s, mode) and s.get("name")]
+    if as_list:
+        return filtered
+    return [s["name"] for s in filtered]
 
 
 def _get_servers_for_general_mode(servers: list) -> list:
@@ -879,8 +883,22 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
 
     if servers:
         if _active_mode:
-            # Modo activo: solo MCPs con ese modo
-            selected = _get_servers_by_mode(servers, _active_mode)
+            # Modo activo: MCPs del modo, con clasificación para elegir cuáles usar
+            servers_for_mode = _get_servers_by_mode(servers, _active_mode, as_list=True)
+            cached = cache_get(f"{_active_mode}:{message}")
+            if cached is not None:
+                if phase is not None:
+                    phase["value"] = "Cacheando"  # noqa: B905
+                selected = cached
+            else:
+                if phase is not None:
+                    phase["value"] = "Clasificando"  # noqa: B905
+                    phase.setdefault("log", []).append(f"LLM>>Ollama.{CLASSIFIER_MODEL}")  # noqa: B905
+                selected = classify_prompt(message, servers_for_mode)
+                cache_set(f"{_active_mode}:{message}", selected)
+            # Fallback por keywords si clasificador devolvió vacío
+            if not selected:
+                selected = _keyword_fallback(message, servers_for_mode)
         else:
             # Modo general: solo MCPs sin modo (los con modo nunca se usan aquí)
             servers_for_classification = _get_servers_for_general_mode(servers)

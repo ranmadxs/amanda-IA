@@ -1664,6 +1664,7 @@ async function send() {
 
     // ── SSE streaming: crear panel en vivo antes del primer dato ──
     liveMsg = createLiveAiMsg();
+    await new Promise(r => setTimeout(r, 0)); // garantiza frame de render para mostrar dots
 
     const reader  = res.body.getReader();
     const decoder = new TextDecoder();

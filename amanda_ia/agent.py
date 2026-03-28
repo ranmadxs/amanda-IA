@@ -951,6 +951,8 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
         lang_hint = " (spanglish para WH40K)" if selected and "wahapedia" in selected else ""
         MAX_TOOL_ROUNDS = 8
 
+        _files_read: list[str] = []  # paths leídos en modo_dev para AIA_FILE markers
+
         for _round in range(MAX_TOOL_ROUNDS):
             # LLM con tools en cada ronda — permite múltiples llamadas secuenciales
             if phase is not None:
@@ -982,6 +984,15 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                     if phase is not None:
                         _r = result or ""
                         phase.setdefault("log", []).append(f"RESULT>> {_r[:400]}{'…' if len(_r) > 400 else ''}")  # noqa: B905
+                    # Rastrear archivos leídos en modo_dev
+                    if _active_mode == "modo_dev" and name in ("read_file", "get_file_contents", "read"):
+                        _p = args.get("path") or args.get("file_path", "")
+                        if _p and isinstance(_p, str) and _p not in _files_read:
+                            _files_read.append(_p)
+                    elif _active_mode == "modo_dev" and name == "read_multiple_files":
+                        for _p in (args.get("paths") or []):
+                            if isinstance(_p, str) and _p not in _files_read:
+                                _files_read.append(_p)
                     last_tool_result = result
                     pending_images.extend(_img_re.findall(result))
                     messages.append({"role": "tool", "tool_name": name, "content": result})
@@ -1024,6 +1035,10 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
 
             # Respuesta final en texto plano — fin determinista del loop
             if content:
+                # En modo_dev: inyectar markers de archivo para que el frontend los capture
+                if _active_mode == "modo_dev" and _files_read:
+                    markers = " ".join(f"[AIA_FILE:{p}]" for p in _files_read)
+                    content = markers + "\n" + content
                 if mcp_load_failed:
                     content += "\n\n[dim]Nota: No se cargaron las herramientas MCP. ¿Están los servidores corriendo? (ej: cd aia-mcp && poetry run mcp all --http). Prueba /cache delete si el clasificador falló.[/]"
                 if pending_images:

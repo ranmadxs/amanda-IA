@@ -155,13 +155,16 @@ class _Handler(BaseHTTPRequestHandler):
     # ── helpers ──
 
     def _send_json(self, data: object, status: int = 200) -> None:
-        body = json.dumps(data).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            body = json.dumps(data).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(body)
+        except (ConnectionResetError, BrokenPipeError, OSError):
+            pass
 
     def _send_html(self, html: str) -> None:
         body = html.encode()
@@ -230,9 +233,12 @@ class _Handler(BaseHTTPRequestHandler):
             _web_mode = key if key else None
             agent_mod._active_mode = _web_mode or ""
             agent_mod._conversation_history.clear()
-        from amanda_ia.config import get_mcp_servers_raw
-        mcp_status = {s["name"]: s.get("enabled") is not False
-                      for s in get_mcp_servers_raw() if s.get("name")}
+        try:
+            from amanda_ia.config import get_mcp_servers_raw
+            mcp_status = {s["name"]: s.get("enabled") is not False
+                          for s in get_mcp_servers_raw() if s.get("name")}
+        except Exception:
+            mcp_status = {}
         self._send_json({"ok": True, "mode": _web_mode, "commands": _web_commands(_web_mode), "mcpStatus": mcp_status})
 
     def _handle_chat(self, body: dict) -> None:

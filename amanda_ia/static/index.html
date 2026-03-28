@@ -561,16 +561,25 @@ body.ide-mode.term-active #ide-terminal { display: flex; }
   gap: 0.4rem;
 }
 .log-zoom-btn {
-  flex-shrink: 0;
   cursor: pointer;
   font-size: 0.75rem;
   color: #a29bfe99;
   line-height: 1;
-  margin-top: 0.05rem;
   user-select: none;
 }
 .log-zoom-btn:hover { color: #a29bfe; }
-.log-plan-text { flex: 1; }
+.mermaid-zoom {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 1rem;
+  color: #ffffff66;
+  background: #00000044;
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.mermaid-zoom:hover { color: #fff; background: #00000099; }
+#plan-modal-body svg { width: 100% !important; height: auto !important; }
 
 /* ── IDE layout (modo_dev) ───────────────────────────────── */
 body.ide-mode {
@@ -1242,6 +1251,14 @@ function createLiveAiMsg() {
         const id = 'mmd-' + Math.random().toString(36).slice(2);
         mermaid.render(id, mermaidDef).then(({ svg }) => {
           mermaidEl.innerHTML = svg;
+          // Botón lupa sobre el diagrama
+          const zoomBtn = document.createElement('span');
+          zoomBtn.className = 'log-zoom-btn mermaid-zoom';
+          zoomBtn.textContent = '🔍';
+          zoomBtn.title = 'Ampliar diagrama';
+          zoomBtn.onclick = () => showPlanPopup(entry, mermaidEl.innerHTML);
+          mermaidEl.style.position = 'relative';
+          mermaidEl.appendChild(zoomBtn);
         }).catch(() => {
           mermaidEl.textContent = entry;
           mermaidEl.className = 'log-entry log-plan';
@@ -1255,20 +1272,7 @@ function createLiveAiMsg() {
 
     const el = document.createElement('div');
     el.className = `log-entry ${cls}`;
-    if (cls === 'log-plan') {
-      const zoom = document.createElement('span');
-      zoom.className = 'log-zoom-btn';
-      zoom.textContent = '🔍';
-      zoom.title = 'Ampliar plan';
-      zoom.onclick = () => showPlanPopup(entry);
-      const txt = document.createElement('span');
-      txt.className = 'log-plan-text';
-      txt.textContent = entry;
-      el.appendChild(zoom);
-      el.appendChild(txt);
-    } else {
-      el.textContent = entry;
-    }
+    el.textContent = entry;
     body.appendChild(el);
     _updateSummary();
     scrollDown();
@@ -1803,8 +1807,15 @@ resumeOverlay.addEventListener('click', e => {
 });
 
 // ── Plan popup ────────────────────────────────────────────
-function showPlanPopup(text) {
-  document.getElementById('plan-modal-body').textContent = text.replace(/^PLAN>>\s*/, '');
+function showPlanPopup(text, svgHtml) {
+  const body = document.getElementById('plan-modal-body');
+  if (svgHtml) {
+    body.innerHTML = svgHtml;
+    body.style.padding = '0.5rem';
+  } else {
+    body.textContent = text.replace(/^PLAN>>\s*/, '');
+    body.style.padding = '1rem';
+  }
   document.getElementById('plan-overlay').classList.add('visible');
 }
 function closePlanPopup() {

@@ -882,46 +882,30 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
     server_names = [s["name"] for s in servers if s.get("name")]
 
     if servers:
+        # Pool de servidores según el modo
         if _active_mode:
-            # Modo activo: MCPs del modo, con clasificación para elegir cuáles usar
-            servers_for_mode = _get_servers_by_mode(servers, _active_mode, as_list=True)
-            cached = cache_get(f"{_active_mode}:{message}")
-            if cached is not None:
-                if phase is not None:
-                    phase["value"] = "Cacheando"  # noqa: B905
-                selected = cached
-            else:
-                if phase is not None:
-                    phase["value"] = "Clasificando"  # noqa: B905
-                    phase.setdefault("log", []).append(f"LLM>>Ollama.{CLASSIFIER_MODEL}")  # noqa: B905
-                selected = classify_prompt(message, servers_for_mode)
-                cache_set(f"{_active_mode}:{message}", selected)
-            # Fallback por keywords si clasificador devolvió vacío
-            if not selected:
-                selected = _keyword_fallback(message, servers_for_mode)
+            pool = _get_servers_by_mode(servers, _active_mode, as_list=True)
+            cache_key = f"{_active_mode}:{message}"
         else:
-            # Modo general: solo MCPs sin modo (los con modo nunca se usan aquí)
-            servers_for_classification = _get_servers_for_general_mode(servers)
-            cached = cache_get(message)
-            if cached is not None:
-                if phase is not None:
-                    phase["value"] = "Cacheando"  # noqa: B905
-                selected = cached
-            else:
-                if phase is not None:
-                    phase["value"] = "Clasificando"  # noqa: B905
-                    phase.setdefault("log", []).append(f"LLM>>Ollama.{CLASSIFIER_MODEL}")  # noqa: B905
-                selected = classify_prompt(message, servers_for_classification)
-                cache_set(message, selected)
-            # Fallback: si clasificador devolvió [] pero el mensaje coincide con keywords, usar esos MCP
-            if not selected:
-                selected = _keyword_fallback(message, servers_for_classification)
-            # Sin modo ni keywords: siempre incluido en modo general
-            for s in servers_for_classification:
-                if not s.get("keywords") and s.get("name") and s["name"] not in (selected or []):
-                    selected = list(selected or []) + [s["name"]]
-    else:
-        pass  # Sin servidores: mantener selected ([] si bypass hora, None si sin config)
+            pool = _get_servers_for_general_mode(servers)
+            cache_key = message
+
+        # Clasificación con cache
+        cached = cache_get(cache_key)
+        if cached is not None:
+            if phase is not None:
+                phase["value"] = "Cacheando"  # noqa: B905
+            selected = cached
+        else:
+            if phase is not None:
+                phase["value"] = "Clasificando"  # noqa: B905
+                phase.setdefault("log", []).append(f"LLM>>Ollama.{CLASSIFIER_MODEL}")  # noqa: B905
+            selected = classify_prompt(message, pool)
+            cache_set(cache_key, selected)
+
+        # Fallback por keywords si el clasificador devolvió vacío
+        if not selected:
+            selected = _keyword_fallback(message, pool)
 
     # selected=None: builtin + todos los MCP. selected=[]: solo builtin.
     # selected=[...]: builtin + esos MCP. Siempre pasamos tools para que get_time funcione.

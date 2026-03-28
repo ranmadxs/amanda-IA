@@ -565,6 +565,11 @@ def _get_servers_for_general_mode(servers: list) -> list:
     return [s for s in servers if not s.get("modo")]
 
 
+def _get_global_servers(servers: list) -> list:
+    """MCPs marcados con global=true: disponibles en todos los modos."""
+    return [s for s in servers if s.get("global") and s.get("name")]
+
+
 def _keyword_fallback(message: str, servers: list) -> list[str]:
     """
     Si el clasificador devolvió [], intenta matchear por keywords.
@@ -883,11 +888,16 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
 
     if servers:
         # Pool de servidores según el modo
+        global_servers = _get_global_servers(servers)
         if _active_mode:
-            pool = _get_servers_by_mode(servers, _active_mode, as_list=True)
+            mode_servers = _get_servers_by_mode(servers, _active_mode, as_list=True)
+            mode_names = {s["name"] for s in mode_servers}
+            pool = mode_servers + [s for s in global_servers if s["name"] not in mode_names]
             cache_key = f"{_active_mode}:{message}"
         else:
-            pool = _get_servers_for_general_mode(servers)
+            general_servers = _get_servers_for_general_mode(servers)
+            general_names = {s["name"] for s in general_servers}
+            pool = general_servers + [s for s in global_servers if s["name"] not in general_names]
             cache_key = message
 
         # Clasificación con cache

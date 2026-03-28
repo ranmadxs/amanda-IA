@@ -1411,6 +1411,33 @@ body.ide-mode.settings-active #ide-terminal    { display: none !important; }
   border-top: 1px solid var(--border);
   margin-top: 0.2rem;
 }
+#sw-general-item {
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 0.76rem;
+  color: var(--text-dim);
+}
+#sw-general-item.active { color: var(--text); background: #1e2040; }
+.sw-info-row {
+  display: flex;
+  gap: 0.8rem;
+  align-items: baseline;
+  font-size: 0.78rem;
+}
+.sw-info-key {
+  color: var(--text-dim);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  width: 60px;
+  flex-shrink: 0;
+}
+.sw-info-val {
+  color: #74b9ff;
+  font-family: 'SF Mono','Fira Code',monospace;
+  font-size: 0.76rem;
+}
 #settings-detail {
   flex: 1;
   overflow-y: auto;
@@ -1553,7 +1580,14 @@ body.ide-mode.settings-active #ide-terminal    { display: none !important; }
   </div>
   <!-- Panel: Settings MCP -->
   <div id="panel-settings" style="display:none; flex-direction:column; flex:1; overflow:hidden;">
-    <div class="sw-mcp-list" id="sw-mcp-list"></div>
+    <div class="sw-mcp-item" id="sw-general-item" onclick="swShowGeneral()">General</div>
+    <div class="sh-group-header" onclick="swToggleMcps()">
+      <span class="sh-arrow" id="sh-arrow-mcps">▶</span>
+      <span>MCP</span>
+    </div>
+    <div id="sw-mcp-body" style="display:none; overflow-y:auto; flex:1;">
+      <div class="sw-mcp-list" id="sw-mcp-list"></div>
+    </div>
   </div>
   <!-- Panel: Terminal (shortcuts) -->
   <div id="panel-terminal" style="display:none; flex-direction:column; flex:1; overflow:hidden;">
@@ -1668,12 +1702,20 @@ body.ide-mode.settings-active #ide-terminal    { display: none !important; }
 
 <!-- IDE: MCP Swagger view (reemplaza editor en settings-active) -->
 <div id="ide-mcp-view">
+  <!-- Vista: General info -->
+  <div id="mcp-view-general" style="display:none; flex-direction:column; padding:1.4rem 1.6rem; gap:0.6rem;">
+    <div style="font-size:0.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim);border-bottom:1px solid var(--border);padding-bottom:.3rem;margin-bottom:.2rem;">General</div>
+    <div class="sw-info-row"><span class="sw-info-key">Version</span><span class="sw-info-val" id="sw-info-version"></span></div>
+    <div class="sw-info-row"><span class="sw-info-key">LLM</span><span class="sw-info-val" id="sw-info-llm"></span></div>
+    <div class="sw-info-row"><span class="sw-info-key">Path</span><span class="sw-info-val" id="sw-info-path"></span></div>
+  </div>
+  <!-- Vista: Server header + tools -->
   <div id="mcp-view-header" style="display:none">
     <div id="mcp-view-name"></div>
     <div id="mcp-view-cmd"></div>
     <div id="mcp-view-badges" style="margin-top:0.4rem"></div>
   </div>
-  <div id="mcp-view-empty">Selecciona un servidor MCP</div>
+  <div id="mcp-view-empty">Selecciona General o un servidor MCP</div>
   <div id="mcp-view-tools" style="display:none"></div>
 </div>
 
@@ -3300,9 +3342,39 @@ let _swMcpAll = [];
 let _swActiveModeNames = new Set();
 let _swSelectedServer = null;
 
+function swToggleMcps() {
+  const body  = document.getElementById('sw-mcp-body');
+  const arrow = document.getElementById('sh-arrow-mcps');
+  const open  = body.style.display === 'none';
+  body.style.display  = open ? 'block' : 'none';
+  arrow.style.transform = open ? 'rotate(90deg)' : '';
+}
+
+async function swShowGeneral() {
+  document.querySelectorAll('.sw-mcp-item').forEach(r => r.classList.remove('active'));
+  document.getElementById('sw-general-item').classList.add('active');
+  document.getElementById('mcp-view-header').style.display  = 'none';
+  document.getElementById('mcp-view-tools').style.display   = 'none';
+  document.getElementById('mcp-view-empty').style.display   = 'none';
+  document.getElementById('mcp-view-general').style.display = 'flex';
+  try {
+    const res  = await fetch('/api/info');
+    const info = await res.json();
+    document.getElementById('sw-info-version').textContent = `aia@${info.version}`;
+    document.getElementById('sw-info-llm').textContent     = `Ollama: ${info.model}`;
+    document.getElementById('sw-info-path').textContent    = info.cwd;
+  } catch(e) {}
+}
+
 async function swLoadMcpList() {
   const list = document.getElementById('sw-mcp-list');
   list.innerHTML = '';
+  // Resetear estado del centro
+  document.getElementById('mcp-view-general').style.display = 'none';
+  document.getElementById('mcp-view-header').style.display  = 'none';
+  document.getElementById('mcp-view-tools').style.display   = 'none';
+  document.getElementById('mcp-view-empty').style.display   = '';
+  document.getElementById('sw-general-item').classList.remove('active');
   try {
     const res = await fetch('/api/mcp/all');
     _swMcpAll = await res.json();
@@ -3346,6 +3418,8 @@ async function swSelectServer(server, rowEl) {
   const header = document.getElementById('mcp-view-header');
   const empty  = document.getElementById('mcp-view-empty');
   const tools  = document.getElementById('mcp-view-tools');
+  document.getElementById('mcp-view-general').style.display = 'none';
+  document.getElementById('sw-general-item').classList.remove('active');
   header.style.display = '';
   empty.style.display  = 'none';
   tools.style.display  = '';

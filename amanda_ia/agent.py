@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import re
 import os
 import subprocess
@@ -9,6 +10,17 @@ import time
 import unicodedata
 from pathlib import Path
 import tomllib
+
+# ── Logger permanente en build/ ────────────────────────────────────────────────
+_BUILD_DIR = Path(__file__).resolve().parent.parent / "build"
+_BUILD_DIR.mkdir(exist_ok=True)
+_LOG_FILE = _BUILD_DIR / f"aia_{time.strftime('%Y%m%d')}.log"
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.FileHandler(_LOG_FILE, encoding="utf-8")],
+)
+logger = logging.getLogger("aia")
 
 from importlib.resources import files
 from ollama import chat as ollama_chat, generate as ollama_generate
@@ -888,43 +900,50 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
 
     try:
         last_tool_result = None
+        pending_images: list[str] = []  # marcadores [AIA_IMG:...] acumulados de tool results
+        _img_re = re.compile(r"\[AIA_IMG:[^\]]+\]")
+        lang_hint = " (spanglish para WH40K)" if selected and "wahapedia" in selected else ""
+        MAX_TOOL_ROUNDS = 8
 
-        # Paso 02: LLM con tools
-        if phase is not None:
-            phase["value"] = "Generando Respuesta"  # noqa: B905
-            phase.setdefault("log", []).append(f"LLM>>Ollama.{OLLAMA_MODEL}")  # noqa: B905
-        response = ollama_chat(model=OLLAMA_MODEL, messages=messages, tools=tools)
-        msg = response.message
+        for _round in range(MAX_TOOL_ROUNDS):
+            # LLM con tools en cada ronda — permite múltiples llamadas secuenciales
+            if phase is not None:
+                phase["value"] = "Generando Respuesta"  # noqa: B905
+                phase.setdefault("log", []).append(f"LLM>>Ollama.{OLLAMA_MODEL}")  # noqa: B905
+            response = ollama_chat(model=OLLAMA_MODEL, messages=messages, tools=tools)
+            msg = response.message
 
-        # Paso 03-04: ejecutar MCPs si el LLM devolvió tool_calls
-        if hasattr(msg, "tool_calls") and msg.tool_calls:
-            messages.append(_msg_to_dict(msg))
-            for tc in msg.tool_calls:
-                name = tc.function.name
-                if name == "list_mcp_databases":
-                    name = "list_databases"
-                server_name = get_server_name_for_tool(name)
-                if phase is not None:
-                    phase["value"] = f"mcp_exe@{server_name}" if server_name else "mcp_exe"  # noqa: B905
-                args = _normalize_arguments(getattr(tc.function, "arguments", None))
-                if name in ("list_databases", "list-databases") and args:
-                    args = {}
-                if args.get("path") in (".", "./", ""):
-                    args["path"] = cwd
-                if selected and len(selected) > 0 and get_server_name_for_tool(name) == "wahapedia" and args:
-                    args = _translate_wahapedia_args(args)
-                if phase is not None:
-                    phase.setdefault("log", []).append(_fmt_tool_call(server_name, name, args))  # noqa: B905
-                result = execute_tool(name, args)
-                last_tool_result = result
-                messages.append({"role": "tool", "tool_name": name, "content": result})
-                if name == "start_live_monitor":
-                    _pending_live_action = "start"
-                elif name == "stop_live_monitor":
-                    _pending_live_action = "stop"
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                # Ejecutar todas las tool_calls de esta ronda
+                messages.append(_msg_to_dict(msg))
+                for tc in msg.tool_calls:
+                    name = tc.function.name
+                    if name == "list_mcp_databases":
+                        name = "list_databases"
+                    server_name = get_server_name_for_tool(name)
+                    if phase is not None:
+                        phase["value"] = f"mcp_exe@{server_name}" if server_name else "mcp_exe"  # noqa: B905
+                    args = _normalize_arguments(getattr(tc.function, "arguments", None))
+                    if name in ("list_databases", "list-databases") and args:
+                        args = {}
+                    if args.get("path") in (".", "./", ""):
+                        args["path"] = cwd
+                    if selected and len(selected) > 0 and get_server_name_for_tool(name) == "wahapedia" and args:
+                        args = _translate_wahapedia_args(args)
+                    if phase is not None:
+                        phase.setdefault("log", []).append(_fmt_tool_call(server_name, name, args))  # noqa: B905
+                    result = execute_tool(name, args)
+                    last_tool_result = result
+                    pending_images.extend(_img_re.findall(result))
+                    messages.append({"role": "tool", "tool_name": name, "content": result})
+                    if name == "start_live_monitor":
+                        _pending_live_action = "start"
+                    elif name == "stop_live_monitor":
+                        _pending_live_action = "stop"
+                # Continuar el loop para que el LLM procese los resultados
+                continue
 
-        else:
-            # Fallback: modelo devolvió JSON como texto en vez de tool_calls
+            # Sin tool_calls: revisar fallback JSON en texto
             content = (getattr(msg, "content", None) or "").strip()
             tool_parsed = _try_parse_tool_json(content)
             if tool_parsed:
@@ -942,33 +961,40 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                     phase.setdefault("log", []).append(_fmt_tool_call(server_name, name, params))  # noqa: B905
                 result = execute_tool(name, params)
                 last_tool_result = result
+                pending_images.extend(_img_re.findall(result))
                 if name == "start_live_monitor":
                     _pending_live_action = "start"
                 elif name == "stop_live_monitor":
                     _pending_live_action = "stop"
                 messages.append({"role": "assistant", "content": content})
-                lang_hint = " (spanglish para WH40K)" if selected and "wahapedia" in selected else ""
-                messages.append({"role": "user", "content": f"Resultado de {name}: {result}\n\nResponde la pregunta del usuario con esta información. Responde en español{lang_hint}."})
-            elif content:
-                # Respuesta directa sin tools
+                messages.append({"role": "user", "content": f"Resultado de {name}: {result}\n\nContinúa respondiendo la pregunta del usuario en español{lang_hint}."})
+                continue
+
+            # Respuesta final en texto plano — fin determinista del loop
+            if content:
                 if mcp_load_failed:
                     content += "\n\n[dim]Nota: No se cargaron las herramientas MCP. ¿Están los servidores corriendo? (ej: cd aia-mcp && poetry run mcp all --http). Prueba /cache delete si el clasificador falló.[/]"
-                _conversation_history = messages[1:] + [{"role": "assistant", "content": content}]
+                if pending_images:
+                    content = "\n".join(pending_images) + "\n" + content
+                clean = [
+                    m for m in messages[1:]
+                    if m.get("role") in ("user", "assistant")
+                    and not m.get("tool_calls")
+                    and m.get("content")
+                ]
+                _conversation_history = clean + [{"role": "assistant", "content": content}]
                 return content
-            else:
-                return "[dim]Sin respuesta.[/]"
+            break
 
-        # Paso 05: LLM sin tools para interpretar los resultados de los MCPs
-        if phase is not None:
-            phase["value"] = "Generando Respuesta"  # noqa: B905
-            phase.setdefault("log", []).append(f"LLM>>Ollama.{OLLAMA_MODEL}")  # noqa: B905
-        final = ollama_chat(model=OLLAMA_MODEL, messages=messages)
-        content = (getattr(final.message, "content", None) or "").strip()
-        if content:
-            _conversation_history = messages[1:] + [{"role": "assistant", "content": content}]
-            return content
+        # Agotadas las rondas o sin contenido
         if last_tool_result:
-            _conversation_history = messages[1:] + [{"role": "assistant", "content": last_tool_result}]
+            clean = [
+                m for m in messages[1:]
+                if m.get("role") in ("user", "assistant")
+                and not m.get("tool_calls")
+                and m.get("content")
+            ]
+            _conversation_history = clean + [{"role": "assistant", "content": last_tool_result}]
             return last_tool_result
         return "[dim]Sin respuesta.[/]"
 
@@ -1072,7 +1098,34 @@ def run():
     )
     output_control._window = output_text_area  # inyectar referencia para scroll
 
+    def _display_iterm2_image(path: str) -> None:
+        """Muestra una imagen PNG inline via protocolo iTerm2 escribiendo a /dev/tty."""
+        logger.debug("iterm2_image: path=%s", path)
+        try:
+            import base64 as _b64
+            with open(path, "rb") as f:
+                data = _b64.b64encode(f.read()).decode()
+            name = os.path.basename(path)
+            seq = f"\033]1337;File=name={name};inline=1;width=100%:{data}\007\n"
+            logger.debug("iterm2_image: seq_len=%d writing to /dev/tty", len(seq))
+            with open("/dev/tty", "wb") as tty:
+                tty.write(seq.encode())
+            logger.debug("iterm2_image: done")
+        except Exception as e:
+            logger.error("iterm2_image error: %s", e)
+
+    _AIA_IMG_RE = re.compile(r"\[AIA_IMG:([^\]]+)\]")
+    _pending_display_images: list[str] = []
+
     def append_output(text: str) -> None:
+        images = _AIA_IMG_RE.findall(text)
+        if images:
+            _pending_display_images.extend(img.strip() for img in images)
+            text = _AIA_IMG_RE.sub("", text).strip()
+            if not text:
+                output_buffer.cursor_position = len(output_buffer.text)
+                _scroll_output(output_buffer)
+                return
         output_buffer.cursor_position = len(output_buffer.text)
         output_buffer.insert_text(text)
         _scroll_output(output_buffer)
@@ -1222,10 +1275,20 @@ def run():
             }
             app.layout.focus(input_buffer)
             app.invalidate()
+            # Mostrar imágenes DESPUÉS del redraw del TUI para que no sean sobreescritas
+            if _pending_display_images:
+                paths = list(_pending_display_images)
+                _pending_display_images.clear()
+                loop.call_later(0.2, lambda: [_display_iterm2_image(p) for p in paths])
 
         def on_done(future):
             try:
-                result = _strip_rich_markup(future.result())
+                raw = future.result()
+                # Preservar marcadores [AIA_IMG:...] antes de stripear Rich markup
+                _img_markers = re.findall(r"\[AIA_IMG:[^\]]+\]", raw)
+                result = _strip_rich_markup(raw)
+                if _img_markers:
+                    result = "\n".join(_img_markers) + ("\n" + result if result.strip() else "")
             except Exception as e:
                 result = str(e)
             call_soon_threadsafe(lambda: update_ui(result), loop=loop)
@@ -1283,6 +1346,18 @@ def run():
         _scroll_buf_down(output_buffer)
         event.app.invalidate()
 
+    @kb.add("pageup")
+    def _on_pageup(event):
+        """Page Up: scrollea el output (usado via SSH cuando scroll wheel manda pageup)."""
+        _scroll_buf_up(output_buffer, step=8)
+        event.app.invalidate()
+
+    @kb.add("pagedown")
+    def _on_pagedown(event):
+        """Page Down: scrollea el output (usado via SSH cuando scroll wheel manda pagedown)."""
+        _scroll_buf_down(output_buffer, step=8)
+        event.app.invalidate()
+
     @kb.add(Keys.Vt100MouseEvent, eager=True)
     def _on_mouse_event(event):
         """
@@ -1314,20 +1389,25 @@ def run():
         elif btn == 65:
             _scroll_buf_down(output_buffer)
             event.app.invalidate()
-        elif btn == 0 and pressed and _pending_feedback and col is not None and row is not None:
-            # Click izquierdo: detectar si cae en la feedback bar
-            # La feedback bar está 2 filas antes del borde inferior (toolbar=1, feedback=2)
-            try:
-                total_rows = event.app.output.get_size().rows
-                total_cols = event.app.output.get_size().columns
-            except Exception:
-                total_rows = 24
-                total_cols = 80
-            # feedback_bar row = total_rows - 1 (toolbar último, feedback penúltimo)
-            if row == total_rows - 1:
-                vote = "up" if col <= total_cols // 2 else "down"
-                _register_vote(vote)
-                event.app.invalidate()
+        elif btn == 0 and pressed:
+            # Click izquierdo: detectar si cae en la feedback bar, o hacer foco en output
+            voted = False
+            if _pending_feedback and col is not None and row is not None:
+                try:
+                    total_rows = event.app.output.get_size().rows
+                    total_cols = event.app.output.get_size().columns
+                except Exception:
+                    total_rows = 24
+                    total_cols = 80
+                # feedback_bar row = total_rows - 1 (toolbar último, feedback penúltimo)
+                if row == total_rows - 1:
+                    vote = "up" if col <= total_cols // 2 else "down"
+                    _register_vote(vote)
+                    event.app.invalidate()
+                    voted = True
+            if not voted and event.app.layout.current_buffer == input_buffer:
+                # Comportamiento Shift+Tab: ir a output para scroll
+                event.app.layout.focus(output_buffer)
         # Resto de eventos: consumidos sin acción (evita dispatch posicional en SSH).
 
     @kb.add("escape")
@@ -1483,10 +1563,10 @@ def run():
         enable_page_navigation_bindings=True,
     )
 
-    # Con mouse_support=False, prompt_toolkit NO agrega load_mouse_bindings()
-    # (dispatch posicional que falla en SSH). Habilitamos solo ?1000h (botones +
-    # scroll) y ?1006h (SGR encoding) manualmente via pre_run para que nuestro
-    # handler de Keys.Vt100MouseEvent sea el único que procese eventos de mouse.
+    # mouse_support=True hace que prompt_toolkit parsee eventos de mouse (Keys.Vt100MouseEvent)
+    # tanto en terminal local como via SSH. Nuestro handler con eager=True consume todos los
+    # eventos antes que load_mouse_bindings() (dispatch posicional), evitando comportamiento
+    # erróneo en SSH. ?1006h (SGR) se habilita via pre_run para coordenadas > 223.
     def _enable_mouse() -> None:
         out = app.output
         out.write_raw("\x1b[?1000h")  # botones: click + scroll wheel

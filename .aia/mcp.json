@@ -8,7 +8,7 @@
       "env": {
         "MDB_MCP_CONNECTION_STRING": "${MONGODB_URI}"
       },
-      "enabled": false,
+      "enabled": true,
       "keywords": ["mongodb", "mongo", "base de datos", "colección", "documento", "query", "insertar", "buscar"],
       "systemPrompt": "MongoDB: conexión preconfigurada. NO pases host, port, username ni password. Para listar bases de datos: USA list_databases (no list_mcp_databases). NUNCA pases parámetros: ni cluster, ni cluster_name, ni format. Siempre arguments vacío {}. list-collections requiere solo database. NUNCA inventes datos."
     },
@@ -34,7 +34,7 @@
       "name": "monitor",
       "url": "http://localhost:8003/mcp",
       "modo": "modo_monitor",
-      "systemPrompt": "Acumulador/estanque: Para litros, porcentaje o nivel: get_lectura_actual(). Para velocidad de disminución: get_velocidad_disminucion_agua(). Para MONITOR EN TIEMPO REAL (cuando pidan monitorear, ver en vivo, tiempo real, watch): start_live_monitor(). Para detener el live: stop_live_monitor(). Si no hay datos, usa calculate_tinaja_level(50). NUNCA digas 'no puedo'."
+      "systemPrompt": "Acumulador/estanque. REGLAS ESTRICTAS: (1) Para ver nivel/litros/porcentaje actual: get_lectura_actual(). (2) Para MONITOR EN VIVO (keywords: monitorear, vivo, watch, stream): start_live_monitor(). (3) Para GRÁFICO con datos recientes (keywords: grafico, gráfico, chart, grafica, visualiza, últimas lecturas, datos recientes): NUNCA uses start_live_monitor. En cambio: llama get_historial(fecha_desde='FECHA_HOYТ00:00:00', limit=48) para obtener registros del día, extrae del JSON los campos timestamp (solo HH:MM, ej: '09:00,09:30,10:00') y litros (ej: '850,840,830') como strings CSV, luego llama grafico_generico(titulo='Nivel estanque hoy', labels=timestamps_csv, valores=litros_csv, tipo='line', unidad='L', color='#55efc4') del MCP charts. NUNCA digas 'no puedo generar gráficos'. SIEMPRE ejecuta las tools."
     },
     {
       "name": "airbnb",
@@ -47,7 +47,7 @@
       "name": "charts",
       "url": "http://localhost:8007/mcp",
       "modo": "modo_airbnb,modo_monitor",
-      "systemPrompt": "Charts MCP: genera gráficos inline. Úsalo cuando el usuario pida 'grafico', 'gráfico', 'chart', 'visualizar', 'graficame'. Tools específicos Airbnb: grafico_gastos_mes(mes,anio), grafico_comparar_meses(meses,anio), grafico_rentabilidad_mes(mes,anio). Tool GENÉRICO para cualquier modo: grafico_generico(titulo, labels, valores, tipo='bar'|'line', unidad='', color='#3498db') donde labels y valores son strings separados por coma. Ej: grafico_generico('Nivel agua', '10:00,10:01,10:02', '80.5,79.3,78.1', tipo='line', unidad='L'). SIEMPRE obtén los datos del MCP correspondiente PRIMERO, luego llama grafico_generico con esos datos.",
+      "systemPrompt": "Charts MCP: genera gráficos inline. Tools Airbnb: grafico_gastos_mes(mes,anio), grafico_comparar_meses(meses,anio), grafico_rentabilidad_mes(mes,anio). Tool GENÉRICO: grafico_generico(titulo, labels, valores, tipo='bar'|'line', unidad='', color='#3498db'). labels y valores son strings CSV. FLUJO OBLIGATORIO para monitor/otros modos: (1) obtener datos del MCP fuente, (2) extraer valores del JSON resultado, (3) armar strings CSV, (4) llamar grafico_generico. NUNCA inventes datos. NUNCA llames grafico_generico sin datos reales obtenidos previamente.",
       "keywords": ["grafico", "gráfico", "chart", "graficame", "visualizar", "mostrar grafico", "mostrar gráfico", "ver grafico", "barras", "comparar meses"]
     },
     {
@@ -84,7 +84,7 @@
       "modo": "modo_dev",
       "enabled": true,
       "keywords": ["archivo", "archivos", "carpeta", "listar", "lista", "contenido", "leer", "escribir", "directorio", "buscar archivos", "crear", "qué hay", "qué archivos", "que archivos", "muéstrame", "muestrame", "muestra los", "lee el", "lee la", "existe el", "hay un archivo", "hay archivos", "ver archivos", "ver carpeta", "esta carpeta", "este directorio", "aquí", "acá", "aca", "ruta", "fichero", "ficheros", "crea", "crea un archivo", "escribe", "modifica", "edita", "nuevo archivo", "changelog", "readme", "md"],
-      "systemPrompt": "SIEMPRE usa rutas absolutas. El directorio de trabajo actual es {cwd}. Para 'carpeta actual', 'este directorio', 'aquí', 'acá' o cuando no se especifique ruta: USA EXACTAMENTE path=\"{cwd}\". NUNCA uses '.', './' ni rutas relativas. NUNCA inventes archivos. Para crear o escribir archivos usa write_file con ruta absoluta."
+      "systemPrompt": "SIEMPRE usa rutas absolutas. El directorio de trabajo actual es {cwd}. Para 'carpeta actual', 'este directorio', 'aquí', 'acá' o cuando no se especifique ruta: USA EXACTAMENTE path=\"{cwd}\". NUNCA uses '.', './' ni rutas relativas. NUNCA inventes archivos. Para crear o escribir archivos usa write_file con ruta absoluta. IMPORTANTE: cuando el usuario pida ver, mostrar, abrir o leer un archivo específico, incluye al final de tu respuesta el marcador [AIA_FILE:/ruta/absoluta/del/archivo] para que la UI lo abra automáticamente en el explorador."
     }
   ]
 }

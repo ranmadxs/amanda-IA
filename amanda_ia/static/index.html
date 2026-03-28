@@ -1602,24 +1602,36 @@ function addFeedbackBar(wrap, question, answerFn, planFn) {
   wrap.appendChild(bar);
 }
 
-// Rellena un elemento .msg-bubble con texto e imágenes inline [AIA_IMG:url]
+/// Rellena un elemento .msg-bubble con texto, imágenes [AIA_IMG:url] y archivos [AIA_FILE:/path]
 function fillBubble(el, text) {
-  const IMG_RE = /\[AIA_IMG:([^\]]+)\]/g;
+  const TOKEN_RE = /\[AIA_IMG:([^\]]+)\]|\[AIA_FILE:([^\]]+)\]/g;
   let last = 0, m;
   el.innerHTML = '';
-  while ((m = IMG_RE.exec(text)) !== null) {
-    if (m.index > last) {
-      el.appendChild(document.createTextNode(text.slice(last, m.index)));
+  while ((m = TOKEN_RE.exec(text)) !== null) {
+    if (m.index > last) el.appendChild(document.createTextNode(text.slice(last, m.index)));
+    if (m[1]) {
+      // Imagen
+      const img = document.createElement('img');
+      img.src = m[1];
+      img.style.cssText = 'max-width:100%;border-radius:6px;margin-top:0.4rem;display:block';
+      el.appendChild(img);
+    } else if (m[2]) {
+      // Archivo — chip clickable + auto-abrir
+      const path = m[2].trim();
+      const fname = path.split('/').pop();
+      const ext   = fname.includes('.') ? fname.split('.').pop().toLowerCase() : '';
+      const chip  = document.createElement('span');
+      chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;background:#0d2137;border:1px solid #0078d4;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.82em;color:#4fc3f7;margin:0 2px;';
+      chip.textContent = _fileIcon(ext) + ' ' + fname;
+      chip.title = path;
+      chip.onclick = () => ideOpenAndSelect(path, fname, ext);
+      el.appendChild(chip);
+      // Auto-abrir sin esperar click
+      setTimeout(() => ideOpenAndSelect(path, fname, ext), 100);
     }
-    const img = document.createElement('img');
-    img.src = m[1];
-    img.style.cssText = 'max-width:100%;border-radius:6px;margin-top:0.4rem;display:block';
-    el.appendChild(img);
     last = m.index + m[0].length;
   }
-  if (last < text.length) {
-    el.appendChild(document.createTextNode(text.slice(last)));
-  }
+  if (last < text.length) el.appendChild(document.createTextNode(text.slice(last)));
 }
 
 function addMsg(role, text) {
@@ -2528,6 +2540,48 @@ function _fileIcon(ext) {
   const m = { py:'🐍', js:'📜', ts:'📘', json:'📋', md:'📝', html:'🌐', css:'🎨',
                toml:'⚙️', yaml:'⚙️', yml:'⚙️', sh:'🖥️', txt:'📄', lock:'🔒', env:'🔑' };
   return m[ext] || '📄';
+}
+
+async function ideOpenAndSelect(path, name, ext) {
+  ideSwitchPanel('explorer');
+  await ideOpenFile(path, name, ext);
+  await ideSelectInTree(path);
+}
+
+async function ideSelectInTree(path) {
+  if (!_ideRoot || !path.startsWith(_ideRoot)) return;
+
+  // Construir lista de dirs ancestros entre root y el archivo
+  const ancestors = [];
+  let p = path.substring(0, path.lastIndexOf('/'));
+  while (p && p.startsWith(_ideRoot) && p !== _ideRoot) {
+    ancestors.unshift(p);
+    p = p.substring(0, p.lastIndexOf('/'));
+  }
+
+  // Expandir cada dir ancestro en orden
+  for (const dir of ancestors) {
+    if (!_expandedDirs.has(dir)) {
+      _expandedDirs.add(dir);
+      const subId = 'ft-sub-' + btoa(dir).replace(/[^a-z0-9]/gi, '');
+      const sub   = document.getElementById(subId);
+      const depth = ancestors.indexOf(dir) + 1;
+      if (sub) {
+        const dirRow = [...document.querySelectorAll('.ft-item')].find(r => r.dataset.path === dir);
+        if (dirRow) dirRow.querySelector('.ft-arrow').textContent = '▼';
+        await ideLoadDir(dir, sub, depth, true);
+      }
+    }
+    await new Promise(r => setTimeout(r, 30));
+  }
+
+  // Seleccionar el archivo
+  await new Promise(r => setTimeout(r, 60));
+  const fileRow = [...document.querySelectorAll('.ft-item')].find(r => r.dataset.path === path);
+  if (fileRow) {
+    ideSetActive(fileRow);
+    fileRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
 }
 
 async function ideOpenFile(path, name, ext) {

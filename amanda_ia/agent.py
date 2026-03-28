@@ -980,19 +980,33 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                         args = _translate_wahapedia_args(args)
                     if phase is not None:
                         phase.setdefault("log", []).append(_fmt_tool_call(server_name, name, args))  # noqa: B905
+                    # En modo_dev, archivos leídos → marker directo (evita llenar el contexto LLM)
+                    _file_redirect: str | None = None
+                    if _active_mode == "modo_dev" and name in ("read_file", "get_file_contents", "read"):
+                        _p = args.get("path") or args.get("file_path", "")
+                        if _p and isinstance(_p, str):
+                            _file_redirect = _p
+                    elif _active_mode == "modo_dev" and name == "read_multiple_files":
+                        _paths = [p for p in (args.get("paths") or []) if isinstance(p, str)]
+                        if _paths:
+                            _file_redirect = " ".join(_paths)
+                            for _p in _paths:
+                                if _p not in _files_read:
+                                    _files_read.append(_p)
+
                     result = execute_tool(name, args)
+
+                    if _file_redirect:
+                        # Reemplazar contenido con marker — el LLM lo emitirá en su respuesta
+                        for _p in _file_redirect.split():
+                            if _p not in _files_read:
+                                _files_read.append(_p)
+                        result = " ".join(f"[AIA_FILE:{_p}]" for _p in _file_redirect.split()) + \
+                                 "\n(El archivo fue enviado al editor. No repitas su contenido en tu respuesta.)"
+
                     if phase is not None:
                         _r = result or ""
                         phase.setdefault("log", []).append(f"RESULT>> {_r[:400]}{'…' if len(_r) > 400 else ''}")  # noqa: B905
-                    # Rastrear archivos leídos en modo_dev
-                    if _active_mode == "modo_dev" and name in ("read_file", "get_file_contents", "read"):
-                        _p = args.get("path") or args.get("file_path", "")
-                        if _p and isinstance(_p, str) and _p not in _files_read:
-                            _files_read.append(_p)
-                    elif _active_mode == "modo_dev" and name == "read_multiple_files":
-                        for _p in (args.get("paths") or []):
-                            if isinstance(_p, str) and _p not in _files_read:
-                                _files_read.append(_p)
                     last_tool_result = result
                     pending_images.extend(_img_re.findall(result))
                     messages.append({"role": "tool", "tool_name": name, "content": result})

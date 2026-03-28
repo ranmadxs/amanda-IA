@@ -1530,6 +1530,7 @@ function createLiveAiMsg() {
 
   function finalize(text) {
     dots.remove();
+    if (count === 0) details.remove();
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
     fillBubble(bubble, text);

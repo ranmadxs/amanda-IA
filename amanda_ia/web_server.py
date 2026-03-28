@@ -223,6 +223,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_shell(self._read_json())
         elif path == "/api/file/save":
             self._handle_file_save(self._read_json())
+        elif path == "/api/feedback":
+            self._handle_feedback(self._read_json())
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -352,6 +354,31 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json({"path": str(p), "content": content, "ext": p.suffix.lstrip(".").lower()})
         except PermissionError:
             self._send_json({"error": "permission denied"}, 403)
+
+    def _handle_feedback(self, body: dict) -> None:
+        import os
+        from datetime import datetime
+        mongodb_uri = os.getenv("MONGODB_URI", "")
+        if not mongodb_uri:
+            self._send_json({"error": "MONGODB_URI not set"}, 503)
+            return
+        rating = body.get("rating")
+        if rating not in (1, -1):
+            self._send_json({"error": "invalid rating"}, 400)
+            return
+        try:
+            from pymongo import MongoClient
+            client = MongoClient(mongodb_uri, serverSelectionTimeoutMS=3000)
+            client["amanda_ia"]["feedback"].insert_one({
+                "mode":     body.get("mode", ""),
+                "question": body.get("question", ""),
+                "answer":   body.get("answer", ""),
+                "rating":   rating,
+                "ts":       datetime.utcnow(),
+            })
+            self._send_json({"ok": True})
+        except Exception as e:
+            self._send_json({"error": str(e)}, 500)
 
     def _handle_file_save(self, body: dict) -> None:
         file_path = body.get("path", "")

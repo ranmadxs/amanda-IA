@@ -178,6 +178,28 @@ body {
   min-width: 300px;
 }
 
+/* Feedback thumbs */
+.msg-feedback {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  padding-left: 2px;
+}
+.fb-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 1px 7px;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.fb-btn:hover { background: var(--bg-panel); color: var(--text); }
+.fb-btn.selected-up   { background: #1a3a1a; border-color: #4caf50; color: #4caf50; }
+.fb-btn.selected-down { background: #3a1a1a; border-color: #f44336; color: #f44336; }
+.fb-btn:disabled { cursor: default; opacity: 0.7; }
+
 /* system notice */
 .msg-system {
   align-self: center;
@@ -1369,6 +1391,35 @@ function moveFocus(dir) {
 
 // ── Messages ─────────────────────────────────────────────────────
 
+// ── Feedback ──────────────────────────────────────────────────────
+let _lastUserText = '';
+
+function addFeedbackBar(wrap, question, answerFn) {
+  const bar = document.createElement('div');
+  bar.className = 'msg-feedback';
+  const up   = document.createElement('button');
+  const down = document.createElement('button');
+  up.className   = 'fb-btn';
+  down.className = 'fb-btn';
+  up.textContent   = '👍';
+  down.textContent = '👎';
+  const send = async (rating, selected, other) => {
+    selected.classList.add(rating === 1 ? 'selected-up' : 'selected-down');
+    other.classList.remove('selected-up', 'selected-down');
+    up.disabled = down.disabled = true;
+    await fetch('/api/feedback', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ mode: currentMod?.key || '', question, answer: answerFn(), rating })
+    });
+    up.disabled = down.disabled = false;
+  };
+  up.onclick   = () => send(1,  up,   down);
+  down.onclick = () => send(-1, down, up);
+  bar.appendChild(up);
+  bar.appendChild(down);
+  wrap.appendChild(bar);
+}
+
 // Rellena un elemento .msg-bubble con texto e imágenes inline [AIA_IMG:url]
 function fillBubble(el, text) {
   const IMG_RE = /\[AIA_IMG:([^\]]+)\]/g;
@@ -1390,6 +1441,7 @@ function fillBubble(el, text) {
 }
 
 function addMsg(role, text) {
+  if (role === 'user') _lastUserText = text;
   const wrap = document.createElement('div');
   wrap.className = `msg ${role}`;
   const label = document.createElement('div');
@@ -1400,6 +1452,7 @@ function addMsg(role, text) {
   fillBubble(bubble, text);
   wrap.appendChild(label);
   wrap.appendChild(bubble);
+  if (role === 'ai') addFeedbackBar(wrap, _lastUserText, () => bubble.textContent);
   messages.appendChild(wrap);
   scrollDown();
 }
@@ -1424,6 +1477,7 @@ function planToMermaid(planText) {
 
 // Crea el wrapper AI con panel de logs en vivo. Devuelve { wrap, appendLog, finalize }.
 function createLiveAiMsg() {
+  const _question = _lastUserText;
   const wrap = document.createElement('div');
   wrap.className = 'msg ai';
 
@@ -1535,6 +1589,7 @@ function createLiveAiMsg() {
     bubble.className = 'msg-bubble';
     fillBubble(bubble, text);
     wrap.appendChild(bubble);
+    addFeedbackBar(wrap, _question, () => bubble.textContent);
     scrollDown();
   }
 

@@ -216,8 +216,11 @@ def _get_header_formatted_text():
     cwd = os.getcwd()
     if _active_mode:
         servers = get_mcp_servers()
-        mode_names = _get_servers_by_mode(servers, _active_mode)
-        mcp_info = ", ".join(mode_names) if mode_names else None
+        mode_servers = _get_servers_by_mode(servers, _active_mode, as_list=True)
+        global_srv = _get_global_servers(servers)
+        mode_names_set = {s["name"] for s in mode_servers}
+        combined = [s["name"] for s in mode_servers] + [s["name"] for s in global_srv if s["name"] not in mode_names_set]
+        mcp_info = ", ".join(combined) if combined else None
     else:
         # Solo MCPs del pool general (sin modo); los de modo no se usan aquí
         servers = get_mcp_servers()
@@ -561,13 +564,13 @@ def _get_servers_by_mode(servers: list, mode: str, as_list: bool = False) -> lis
 
 
 def _get_servers_for_general_mode(servers: list) -> list:
-    """MCPs sin modo: solo estos se usan en modo general (clasificación por keywords)."""
-    return [s for s in servers if not s.get("modo")]
+    """MCPs sin modo o con modo='ALL': disponibles en modo general."""
+    return [s for s in servers if not s.get("modo") or s.get("modo") == "ALL"]
 
 
 def _get_global_servers(servers: list) -> list:
-    """MCPs marcados con global=true: disponibles en todos los modos."""
-    return [s for s in servers if s.get("global") and s.get("name")]
+    """MCPs con modo='ALL' o global=true: disponibles en todos los modos."""
+    return [s for s in servers if (s.get("modo") == "ALL" or s.get("global")) and s.get("name")]
 
 
 def _keyword_fallback(message: str, servers: list) -> list[str]:

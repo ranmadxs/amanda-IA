@@ -56,10 +56,11 @@ def _all_mods_info() -> list[dict]:
     from amanda_ia.config import get_mcp_servers_raw
     mcp_raw = get_mcp_servers_raw()
 
-    # MCPs globales: los que no tienen campo "modo" (disponibles en asistente general)
+    # MCPs globales: sin modo o con modo=="ALL" (disponibles en todos)
+    all_servers = [s for s in mcp_raw if s.get("modo") == "ALL" and s.get("enabled", True) is not False]
     global_mcps = [
         s.get("name", "") for s in mcp_raw
-        if not s.get("modo") and s.get("enabled", True) is not False
+        if (not s.get("modo") or s.get("modo") == "ALL") and s.get("enabled", True) is not False
     ]
     result = [{
         "name": "aia",
@@ -70,12 +71,13 @@ def _all_mods_info() -> list[dict]:
         "colorDim": "#2c3e50",
         "mcpServers": global_mcps,
     }]
+    all_names = {s.get("name") for s in all_servers}
     for m in get_mods():
         key = m.get("key", "")
-        # Servidores MCP configurados para este modo
+        # Servidores MCP configurados para este modo + globales (ALL)
         mode_mcps = [
             s.get("name", "") for s in mcp_raw
-            if server_in_modo(s, key)
+            if server_in_modo(s, key) or s.get("name") in all_names
         ]
         result.append({
             "name": m.get("name"),

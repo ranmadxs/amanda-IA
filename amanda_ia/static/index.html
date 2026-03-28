@@ -1201,7 +1201,24 @@ body.ide-mode #chat-panel {
 }
 .mcp-row:hover { background: #1a1a2e; color: var(--text); }
 .mcp-row.active { background: #1e2040; color: var(--text); }
+.mcp-row.dim { opacity: 0.38; }
+.mcp-row.dim:hover { opacity: 0.6; }
+.mcp-separator {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 0.55rem 0.9rem 0.2rem;
+  border-top: 1px solid var(--border);
+  margin-top: 0.3rem;
+}
 .mcp-status { font-size: 0.7rem; flex-shrink: 0; }
+body.ide-mode #settings-btn { display: none; }
+#btn-settings-ide {
+  margin-top: auto;
+  margin-bottom: 6px;
+}
 #settings-detail {
   flex: 1;
   overflow-y: auto;
@@ -1304,6 +1321,12 @@ body.ide-mode #chat-panel {
 
 <!-- IDE: Activity bar -->
 <div id="ide-activity">
+  <div class="ide-act-btn" id="btn-settings-ide" title="Configuración MCP" onclick="settingsOpen()">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  </div>
   <div class="ide-act-btn active" id="btn-explorer" title="Explorer" onclick="ideSwitchPanel('explorer')">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
       <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
@@ -2972,16 +2995,37 @@ async function settingsOpen() {
   } catch(e) {
     _mcpAll = [];
   }
+  // Servidores activos para el modo actual
+  const activeModeNames = new Set(currentMod ? (currentMod.mcpServers || []) : []);
+  const inMode  = _mcpAll.map((s,i) => ({s,i})).filter(({s}) => activeModeNames.has(s.name));
+  const outMode = _mcpAll.map((s,i) => ({s,i})).filter(({s}) => !activeModeNames.has(s.name));
+
   const list = document.getElementById('settings-list');
-  _mcpAll.forEach((s, i) => {
+
+  function addRow({s, i}, dim) {
     const row = document.createElement('div');
-    row.className = 'mcp-row';
+    row.className = 'mcp-row' + (dim ? ' dim' : '');
     row.dataset.idx = i;
     const icon = s.enabled ? '🟢' : '🔴';
     row.innerHTML = `<span class="mcp-status">${icon}</span><span>${s.name}</span>`;
     row.addEventListener('click', () => settingsSelect(i, row));
     list.appendChild(row);
-  });
+  }
+
+  if (inMode.length) {
+    const sep = document.createElement('div');
+    sep.className = 'mcp-separator';
+    sep.textContent = currentMod && currentMod.key ? currentMod.displayName : 'General';
+    list.appendChild(sep);
+    inMode.forEach(item => addRow(item, false));
+  }
+  if (outMode.length) {
+    const sep = document.createElement('div');
+    sep.className = 'mcp-separator';
+    sep.textContent = 'Otros';
+    list.appendChild(sep);
+    outMode.forEach(item => addRow(item, true));
+  }
 }
 
 function settingsClose() {

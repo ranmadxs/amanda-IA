@@ -408,18 +408,20 @@ def _run_mcp_command(parts: list[str]) -> str:
         else:
             active = [s for s in servers if not s.get("modo")]
             ctx_label = "Modo general"
-        active = [s for s in active if s.get("enabled") is not False]
         if not active:
-            return f"[dim]No hay MCPs activos para {ctx_label}[/]"
+            return f"[dim]No hay MCPs para {ctx_label}[/]"
         lines = []
         for s in active:
+            enabled = s.get("enabled") is not False
+            icon = "🟢" if enabled else "🔴"
             name = s.get("name", "?")
             typ = "HTTP" if s.get("url") else "stdio"
             url_or_cmd = s.get("url") or f"{s.get('command', '')} {' '.join(str(a) for a in s.get('args', []))}"
             kw = s.get("keywords", [])
             kw_str = ", ".join(kw[:5]) + ("..." if len(kw) > 5 else "") if kw else "-"
-            lines.append(f"  🟢 {name}\n    tipo: {typ}\n    {url_or_cmd}\n    keywords: {kw_str}")
-        return f"MCP activos ({ctx_label}):\n\n" + "\n\n".join(lines)
+            status = "" if enabled else " [dim](disabled)[/]"
+            lines.append(f"  {icon} {name}{status}\n    tipo: {typ}\n    {url_or_cmd}\n    keywords: {kw_str}")
+        return f"MCPs ({ctx_label}):\n\n" + "\n\n".join(lines)
 
     if len(parts) == 3:
         name, action = parts[1], parts[2].lower()

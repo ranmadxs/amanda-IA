@@ -210,6 +210,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_mongo_docs()
         elif path == "/api/mongo/query":
             self._handle_mongo_query()
+        elif path == "/api/mcp/all":
+            self._handle_mcp_all()
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -233,6 +235,28 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "not found"}, 404)
 
     # ── rutas ──
+
+    def _handle_mcp_all(self) -> None:
+        from amanda_ia.config import get_mcp_servers_raw
+        servers = get_mcp_servers_raw()
+        result = []
+        for s in servers:
+            if not s.get("name"):
+                continue
+            enabled = s.get("enabled") is not False
+            result.append({
+                "name":         s.get("name"),
+                "enabled":      enabled,
+                "modo":         s.get("modo", ""),
+                "global":       s.get("global", False),
+                "command":      s.get("command", ""),
+                "args":         s.get("args", []),
+                "url":          s.get("url", ""),
+                "env":          s.get("env", {}),
+                "keywords":     s.get("keywords", []),
+                "systemPrompt": s.get("systemPrompt", ""),
+            })
+        self._send_json(result)
 
     def _handle_mode(self, body: dict) -> None:
         global _web_mode

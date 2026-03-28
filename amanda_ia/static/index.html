@@ -1115,6 +1115,169 @@ body.ide-mode #chat-panel {
   flex: none;
   border-left: none;
 }
+
+/* ── Settings button ────────────────────────────────────── */
+#settings-btn {
+  margin-left: auto;
+  padding: 0 0.9rem;
+  cursor: pointer;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+  transition: color .15s;
+  user-select: none;
+}
+#settings-btn:hover { color: var(--text); }
+
+/* ── Settings modal ─────────────────────────────────────── */
+#settings-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: #00000088;
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+}
+#settings-overlay.visible { display: flex; }
+#settings-modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 780px;
+  max-width: 96vw;
+  height: 520px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#settings-modal-header {
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+#settings-modal-close {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 1rem;
+}
+#settings-modal-close:hover { color: var(--text); }
+#settings-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+#settings-list {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 0.4rem 0;
+}
+#settings-list::-webkit-scrollbar { width: 4px; }
+#settings-list::-webkit-scrollbar-thumb { background: #424242; border-radius: 2px; }
+.mcp-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  transition: background .1s, color .1s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mcp-row:hover { background: #1a1a2e; color: var(--text); }
+.mcp-row.active { background: #1e2040; color: var(--text); }
+.mcp-status { font-size: 0.7rem; flex-shrink: 0; }
+#settings-detail {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.1rem 1.4rem;
+  font-size: 0.78rem;
+  color: var(--text);
+}
+#settings-detail::-webkit-scrollbar { width: 4px; }
+#settings-detail::-webkit-scrollbar-thumb { background: #424242; border-radius: 2px; }
+.sd-empty { color: var(--text-dim); font-style: italic; }
+.sd-name {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 0.6rem;
+  color: var(--text);
+}
+.sd-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 0.68rem;
+  margin-right: 4px;
+  margin-bottom: 0.7rem;
+}
+.sd-badge.enabled  { background: #0d2e1a; color: #55efc4; border: 1px solid #1a5c38; }
+.sd-badge.disabled { background: #2e0d0d; color: #e17055; border: 1px solid #5c1a1a; }
+.sd-badge.global   { background: #1a1a3a; color: #74b9ff; border: 1px solid #2a2a6a; }
+.sd-badge.modo     { background: #1a1a2e; color: #a29bfe; border: 1px solid #3a3a6e; }
+.sd-section {
+  margin-top: 0.9rem;
+  margin-bottom: 0.3rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.2rem;
+}
+.sd-code {
+  background: #0d0d1a;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.45rem 0.7rem;
+  font-family: 'SF Mono','Fira Code',monospace;
+  font-size: 0.74rem;
+  color: #74b9ff;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-top: 0.3rem;
+}
+.sd-kw-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 0.3rem;
+}
+.sd-kw {
+  background: #1a1a2e;
+  color: #a29bfe;
+  border: 1px solid #3a3a6e;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 0.68rem;
+}
+.sd-prompt {
+  background: #0d0d1a;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.55rem 0.7rem;
+  color: #ffeaa7;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  margin-top: 0.3rem;
+  white-space: pre-wrap;
+}
 </style>
 </head>
 <body>
@@ -1298,6 +1461,20 @@ body.ide-mode #chat-panel {
 
 <div class="ide-resizer" id="resizer-chat"></div>
 
+<!-- Settings modal -->
+<div id="settings-overlay" onclick="if(event.target===this)settingsClose()">
+  <div id="settings-modal">
+    <div id="settings-modal-header">
+      <span>⚙ Servidores MCP</span>
+      <span id="settings-modal-close" onclick="settingsClose()">✕</span>
+    </div>
+    <div id="settings-body">
+      <div id="settings-list"></div>
+      <div id="settings-detail"><span class="sd-empty">Selecciona un servidor</span></div>
+    </div>
+  </div>
+</div>
+
 <!-- Chat panel (siempre visible, derecha en IDE mode) -->
 <div id="chat-panel">
   <div id="header"></div>
@@ -1369,6 +1546,16 @@ function renderTabs() {
     tab.addEventListener('click', () => selectMod(m));
     header.appendChild(tab);
   });
+  // Botón ⚙ settings al final del header
+  const btn = document.createElement('div');
+  btn.id = 'settings-btn';
+  btn.title = 'Configuración MCP';
+  btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+  </svg>`;
+  btn.addEventListener('click', settingsOpen);
+  header.appendChild(btn);
 }
 
 async function selectMod(mod) {
@@ -2770,6 +2957,83 @@ async function loadResume(id) {
     }
   }
   addSystemMsg('Conversación retomada. Podés continuar desde donde quedó.');
+}
+
+// ── Settings MCP ─────────────────────────────────────────────────
+let _mcpAll = [];
+
+async function settingsOpen() {
+  document.getElementById('settings-overlay').classList.add('visible');
+  document.getElementById('settings-detail').innerHTML = '<span class="sd-empty">Selecciona un servidor</span>';
+  document.getElementById('settings-list').innerHTML = '';
+  try {
+    const res = await fetch('/api/mcp/all');
+    _mcpAll = await res.json();
+  } catch(e) {
+    _mcpAll = [];
+  }
+  const list = document.getElementById('settings-list');
+  _mcpAll.forEach((s, i) => {
+    const row = document.createElement('div');
+    row.className = 'mcp-row';
+    row.dataset.idx = i;
+    const icon = s.enabled ? '🟢' : '🔴';
+    row.innerHTML = `<span class="mcp-status">${icon}</span><span>${s.name}</span>`;
+    row.addEventListener('click', () => settingsSelect(i, row));
+    list.appendChild(row);
+  });
+}
+
+function settingsClose() {
+  document.getElementById('settings-overlay').classList.remove('visible');
+}
+
+function settingsSelect(idx, rowEl) {
+  document.querySelectorAll('.mcp-row').forEach(r => r.classList.remove('active'));
+  rowEl.classList.add('active');
+  const s = _mcpAll[idx];
+  const detail = document.getElementById('settings-detail');
+
+  const enabledBadge = s.enabled
+    ? '<span class="sd-badge enabled">🟢 habilitado</span>'
+    : '<span class="sd-badge disabled">🔴 deshabilitado</span>';
+  const modoBadge = s.modo === 'ALL'
+    ? '<span class="sd-badge global">🌐 ALL</span>'
+    : s.modo
+      ? `<span class="sd-badge modo">🎯 ${s.modo}</span>`
+      : '<span class="sd-badge global">🌐 general</span>';
+  const globalBadge = s.global ? '<span class="sd-badge global">⚡ global</span>' : '';
+
+  let cmdHtml = '';
+  if (s.url) {
+    cmdHtml = `<div class="sd-section">Endpoint</div><div class="sd-code">${s.url}</div>`;
+  } else if (s.command) {
+    const full = [s.command, ...(s.args || [])].join(' ');
+    cmdHtml = `<div class="sd-section">Comando</div><div class="sd-code">${full}</div>`;
+  }
+
+  let envHtml = '';
+  if (s.env && Object.keys(s.env).length) {
+    const lines = Object.entries(s.env).map(([k,v]) => `${k}=${v}`).join('\n');
+    envHtml = `<div class="sd-section">Variables de entorno</div><div class="sd-code">${lines}</div>`;
+  }
+
+  let kwHtml = '';
+  if (s.keywords && s.keywords.length) {
+    const chips = s.keywords.map(k => `<span class="sd-kw">${k}</span>`).join('');
+    kwHtml = `<div class="sd-section">Keywords de clasificación</div><div class="sd-kw-list">${chips}</div>`;
+  }
+
+  let promptHtml = '';
+  if (s.systemPrompt) {
+    promptHtml = `<div class="sd-section">System Prompt</div><div class="sd-prompt">${s.systemPrompt}</div>`;
+  }
+
+  detail.innerHTML = `
+    <div class="sd-name">${s.name}</div>
+    <div>${enabledBadge}${modoBadge}${globalBadge}</div>
+    ${cmdHtml}${envHtml}${kwHtml}${promptHtml}
+  `;
 }
 
 // ── Go ────────────────────────────────────────────────────────────

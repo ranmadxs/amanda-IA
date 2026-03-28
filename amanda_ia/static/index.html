@@ -374,9 +374,70 @@ body.live-mode #chat-input {
 /* ── Mode flash ─────────────────────────────────────────── */
 body.mode-flash #banner { animation: flash .35s ease; }
 @keyframes flash { 0% { opacity: 0.4; } 100% { opacity: 1; } }
+
+/* ── Resume modal ────────────────────────────────────────── */
+#resume-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+}
+#resume-overlay.visible { display: flex; }
+#resume-modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: min(480px, 92vw);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#resume-modal h2 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 0.8rem 1rem;
+  border-bottom: 1px solid var(--border);
+  margin: 0;
+}
+#resume-list {
+  overflow-y: auto;
+  flex: 1;
+}
+.resume-item {
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+.resume-item:hover { background: #1a1a2e; }
+.resume-title { font-size: 0.85rem; color: var(--text); }
+.resume-meta  { font-size: 0.72rem; color: var(--text-dim); margin-top: 0.15rem; }
+#resume-empty { padding: 1.2rem; color: var(--text-dim); font-size: 0.85rem; text-align: center; }
+#resume-close {
+  padding: 0.6rem 1rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-align: center;
+  border-top: 1px solid var(--border);
+}
+#resume-close:hover { color: var(--text); }
 </style>
 </head>
 <body>
+
+<!-- Resume modal -->
+<div id="resume-overlay">
+  <div id="resume-modal">
+    <h2>📋 Conversaciones anteriores</h2>
+    <div id="resume-list"></div>
+    <div id="resume-close">Cancelar</div>
+  </div>
+</div>
 
 <div id="header"></div>
 
@@ -837,7 +898,8 @@ async function send() {
     const ct = res.headers.get('content-type') || '';
     if (ct.includes('application/json')) {
       const data = await res.json();
-      if (data.response === '__watch__') { startWatch(); return; }
+      if (data.response === '__watch__')  { startWatch(); return; }
+      if (data.response === '__resume__') { showResume(); return; }
       addMsg('ai', data.response || data.error || '(sin respuesta)');
       return;
     }
@@ -928,6 +990,51 @@ document.addEventListener('mousedown', e => {
 });
 
 sendBtn.addEventListener('click', send);
+
+// ── Resume ───────────────────────────────────────────────────────
+const resumeOverlay = document.getElementById('resume-overlay');
+const resumeList    = document.getElementById('resume-list');
+document.getElementById('resume-close').addEventListener('click', () => {
+  resumeOverlay.classList.remove('visible');
+});
+resumeOverlay.addEventListener('click', e => {
+  if (e.target === resumeOverlay) resumeOverlay.classList.remove('visible');
+});
+
+async function showResume() {
+  resumeList.innerHTML = '';
+  const items = await fetch('/api/history').then(r => r.json()).catch(() => []);
+  if (!items.length) {
+    resumeList.innerHTML = '<div id="resume-empty">No hay conversaciones guardadas para este modo.</div>';
+  } else {
+    for (const item of items) {
+      const el = document.createElement('div');
+      el.className = 'resume-item';
+      const d = new Date(item.date);
+      const dateStr = d.toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' });
+      el.innerHTML = `<div class="resume-title">${item.title}</div>`
+        + `<div class="resume-meta">${dateStr} · ${item.turns} pregunta${item.turns !== 1 ? 's' : ''}</div>`;
+      el.addEventListener('click', () => loadResume(item.id));
+      resumeList.appendChild(el);
+    }
+  }
+  resumeOverlay.classList.add('visible');
+}
+
+async function loadResume(id) {
+  resumeOverlay.classList.remove('visible');
+  const mode = currentMod?.key || '';
+  const res = await fetch('/api/history/load', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, mode })
+  });
+  if (res.ok) {
+    addSystemMsg('Conversación cargada. Podés continuar desde donde quedó.');
+  } else {
+    addSystemMsg('Error al cargar la conversación.');
+  }
+}
 
 // ── Go ────────────────────────────────────────────────────────────
 init();

@@ -20,6 +20,7 @@ from pathlib import Path
 import amanda_ia.agent as agent_mod
 from amanda_ia.agent import process
 from amanda_ia.config import get_mods, get_mods_raw
+import amanda_ia.history as _history_mod
 
 RESOURCES = Path(__file__).resolve().parent / "resources"
 STATIC = Path(__file__).resolve().parent / "static"
@@ -92,6 +93,7 @@ def _web_commands(mode_key: str | None) -> list[dict]:
     """Comandos slash disponibles para el modo actual en la web."""
     cmds: list[dict] = []
     cmds.append({"cmd": "/help",          "desc": "Listar herramientas disponibles del modo actual"})
+    cmds.append({"cmd": "/resume",        "desc": "Retomar una conversación anterior"})
     cmds.append({"cmd": "/mcp list",      "desc": "Listar servidores MCP activos"})
     cmds.append({"cmd": "/mod list",      "desc": "Listar modos disponibles"})
     cmds.append({"cmd": "/cache delete",  "desc": "Borrar caché (clasificador, MCP, historial)"})
@@ -189,6 +191,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_watch()
         elif path == "/api/image":
             self._handle_image()
+        elif path == "/api/history":
+            self._send_json(_history_mod.list_all(_web_mode or ""))
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -200,6 +204,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_mode(self._read_json())
         elif path == "/api/chat":
             self._handle_chat(self._read_json())
+        elif path == "/api/history/load":
+            self._handle_history_load(self._read_json())
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -225,6 +231,9 @@ class _Handler(BaseHTTPRequestHandler):
         # Respuestas inmediatas sin SSE
         if text_lower == "/watch":
             self._send_json({"response": "__watch__"})
+            return
+        if text_lower == "/resume":
+            self._send_json({"response": "__resume__"})
             return
         if text_lower == "/help" and not _web_mode:
             self._send_json({"response": _help_no_mode()})
@@ -272,6 +281,19 @@ class _Handler(BaseHTTPRequestHandler):
             _sse("log", {"entry": entry})
 
         _sse("response", {"response": _strip(result_holder[0] or "")})
+
+    def _handle_history_load(self, body: dict) -> None:
+        global _web_mode
+        mode = body.get("mode", _web_mode or "")
+        hid  = body.get("id", "")
+        messages = _history_mod.load(mode, hid)
+        if messages is None:
+            self._send_json({"error": "not found"}, 404)
+            return
+        with _lock:
+            agent_mod._active_mode = mode
+            agent_mod._conversation_history = messages
+        self._send_json({"ok": True})
 
     def _handle_image(self) -> None:
         from urllib.parse import parse_qs, urlparse

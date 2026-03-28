@@ -87,6 +87,7 @@ from amanda_ia.classifier_cache import get as cache_get, set_ as cache_set, dele
 from amanda_ia.plan_cache import get as plan_cache_get, set_ as plan_cache_set, delete_all as plan_cache_delete_all
 from amanda_ia import live_monitor
 from amanda_ia.feedback import save_feedback
+import amanda_ia.history as _history_mod
 
 console = Console()
 
@@ -742,6 +743,9 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
             return f"[dim]Modo {label} activado. Escribe 'exit' o presiona ⎋ Esc para salir.[/]"
         return f"[dim]Modo '{sub}' no existe. Modos: {', '.join(available_modes)}[/]"
 
+    if msg_lower == "/resume":
+        return "__resume__"
+
     if msg_lower == "/help":
         if not _active_mode:
             return (
@@ -1012,6 +1016,7 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                     and m.get("content")
                 ]
                 _conversation_history = clean + [{"role": "assistant", "content": content}]
+                _history_mod.save(_active_mode, _conversation_history)
                 return content
             break
 
@@ -1024,6 +1029,7 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                 and m.get("content")
             ]
             _conversation_history = clean + [{"role": "assistant", "content": last_tool_result}]
+            _history_mod.save(_active_mode, _conversation_history)
             return last_tool_result
         return "[dim]Sin respuesta.[/]"
 

@@ -449,6 +449,48 @@ body.mode-flash #banner { animation: flash .35s ease; }
 body.ide-mode #ide-statusbar { display: flex; }
 #ide-statusbar-version { opacity: 0.9; font-size: 0.58rem; white-space: nowrap; overflow: hidden; text-overflow: clip; }
 
+/* ── Panel de tests (sidebar terminal) ──────────────────── */
+.test-section-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #6b6e73;
+  padding: 0.55rem 0.8rem 0.25rem;
+  text-transform: uppercase;
+}
+#test-run-btns { display: flex; flex-direction: column; gap: 1px; }
+.test-run-btn {
+  padding: 0.45rem 0.8rem;
+  font-size: 0.76rem;
+  color: #ccc;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-left: 2px solid transparent;
+  transition: background 0.1s;
+}
+.test-run-btn:hover  { background: #2a2d2e; color: #fff; border-left-color: #80d740; }
+.test-run-btn.running { color: #f9ca24; border-left-color: #f9ca24; }
+.test-run-btn.passed  { color: #80d740; border-left-color: #80d740; }
+.test-run-btn.failed  { color: #f28b82; border-left-color: #f28b82; }
+#test-file-list .tf-item {
+  padding: 0.3rem 0.8rem 0.3rem 1.2rem;
+  font-size: 0.73rem;
+  color: #9b9ea3;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#test-file-list .tf-item:hover { background: #2a2d2e; color: #d4d4d4; }
+#test-file-list .tf-dot { width: 6px; height: 6px; border-radius: 50%; background: #555; flex-shrink: 0; }
+#test-file-list .tf-dot.pass { background: #80d740; }
+#test-file-list .tf-dot.fail { background: #f28b82; }
+
 /* ── Terminal IDE (iTerm2 style) ─────────────────────────── */
 #ide-terminal {
   display: none;
@@ -907,6 +949,18 @@ body.ide-mode #chat-panel {
   <!-- Panel: MongoDB -->
   <div id="panel-mongo" style="display:none; flex-direction:column; flex:1; overflow:hidden;">
     <div id="mongo-tree" style="overflow-y:auto;flex:1;font-size:0.78rem;"></div>
+  </div>
+  <!-- Panel: Terminal (botones de tests) -->
+  <div id="panel-terminal" style="display:none; flex-direction:column; flex:1; overflow:hidden;">
+    <div class="test-section-label">Ejecutar Tests</div>
+    <div id="test-run-btns">
+      <div class="test-run-btn" onclick="testRun('all')">▶ Todos los tests</div>
+      <div class="test-run-btn" onclick="testRun('verbose')">▶ Verbose (-v)</div>
+      <div class="test-run-btn" onclick="testRun('failed')">▶ Solo fallidos (--lf)</div>
+      <div class="test-run-btn" onclick="testRun('coverage')">▶ Con cobertura</div>
+    </div>
+    <div class="test-section-label" style="margin-top:0.5rem">Archivos de test</div>
+    <div id="test-file-list" style="overflow-y:auto;flex:1;font-size:0.75rem;"></div>
   </div>
 </div>
 
@@ -1512,8 +1566,8 @@ let _activePanel = 'explorer';
 function ideSwitchPanel(name) {
   _activePanel = name;
   document.getElementById('panel-explorer').style.display = name === 'explorer' ? 'block' : 'none';
-  const mp = document.getElementById('panel-mongo');
-  mp.style.display = name === 'mongo' ? 'flex' : 'none';
+  document.getElementById('panel-mongo').style.display = name === 'mongo' ? 'flex' : 'none';
+  document.getElementById('panel-terminal').style.display = name === 'terminal' ? 'flex' : 'none';
   const titles = { explorer: 'Explorer', mongo: 'MongoDB', terminal: 'Terminal' };
   document.getElementById('ide-sidebar-title').textContent = titles[name] || name;
   document.getElementById('btn-explorer').classList.toggle('active', name === 'explorer');
@@ -1521,7 +1575,7 @@ function ideSwitchPanel(name) {
   document.getElementById('btn-terminal').classList.toggle('active', name === 'terminal');
   document.body.classList.toggle('term-active', name === 'terminal');
   if (name === 'mongo') mongoInit();
-  if (name === 'terminal') termFocus();
+  if (name === 'terminal') { termFocus().then(() => testLoadFiles()); }
 }
 
 // ── Terminal ──────────────────────────────────────────────────────
@@ -1539,8 +1593,8 @@ function termUpdatePrompt() {
   document.getElementById('term-prompt').textContent = `${short} ❯`;
 }
 
-function termFocus() {
-  termInit();
+async function termFocus() {
+  await termInit();
   document.getElementById('term-input').focus();
 }
 
@@ -1607,6 +1661,67 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+
+// ── Tests ─────────────────────────────────────────────────────────
+const _testCmds = {
+  all:      'poetry run pytest',
+  verbose:  'poetry run pytest -v',
+  failed:   'poetry run pytest --lf -v',
+  coverage: 'poetry run pytest --cov=. --cov-report=term-missing',
+};
+
+let _testFilesLoaded = false;
+
+async function testLoadFiles() {
+  if (_testFilesLoaded || !_termCwd) return;
+  _testFilesLoaded = true;
+  const list = document.getElementById('test-file-list');
+  list.innerHTML = '<div style="padding:0.4rem 0.8rem;color:#555;font-size:0.72rem">Buscando…</div>';
+  const res = await fetch('/api/shell', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ cmd: 'find . -name "test_*.py" -o -name "*_test.py" | sort', cwd: _termCwd })
+  }).then(r => r.json()).catch(() => ({ stdout: '', stderr: '' }));
+  const files = res.stdout.trim().split('\n').filter(Boolean);
+  list.innerHTML = '';
+  if (!files.length) {
+    list.innerHTML = '<div style="padding:0.4rem 0.8rem;color:#555;font-size:0.72rem">No hay tests</div>';
+    return;
+  }
+  for (const f of files) {
+    const name = f.replace(/^.*\//, '');
+    const row = document.createElement('div');
+    row.className = 'tf-item';
+    row.innerHTML = `<span class="tf-dot" data-file="${f}"></span>${name}`;
+    row.title = f;
+    row.onclick = () => testRunFile(f.replace(/^\.\//, ''));
+    list.appendChild(row);
+  }
+}
+
+async function testRun(key) {
+  const cmd = _testCmds[key];
+  if (!cmd) return;
+  // Marcar botón como running
+  const btns = document.querySelectorAll('.test-run-btn');
+  btns.forEach(b => b.classList.remove('running','passed','failed'));
+  const btn = document.querySelector(`.test-run-btn[onclick="testRun('${key}')"]`);
+  if (btn) btn.classList.add('running');
+  await termRun(cmd);
+  // Detectar resultado por último output
+  const out = document.getElementById('term-output');
+  const text = out.textContent;
+  if (btn) {
+    const passed = /\d+ passed/.test(text) && !/\d+ failed/.test(text.split(cmd).pop());
+    const failed = /\d+ failed/.test(text.split(cmd).pop());
+    btn.classList.remove('running');
+    btn.classList.toggle('passed', passed && !failed);
+    btn.classList.toggle('failed', failed);
+  }
+}
+
+async function testRunFile(file) {
+  await termRun(`poetry run pytest ${file} -v`);
+}
 
 // ── MongoDB explorer ──────────────────────────────────────────────
 let _mongoLoaded = false;

@@ -431,9 +431,12 @@ class _Handler(BaseHTTPRequestHandler):
             client = MongoClient(mongodb_uri, serverSelectionTimeoutMS=3000)
             docs = list(client[db_name][col_name].find({}, limit=limit))
             # Convert non-serializable BSON types
+            from datetime import datetime as _dt, date as _date
             def _convert(obj):
                 if isinstance(obj, ObjectId):
                     return str(obj)
+                if isinstance(obj, (_dt, _date)):
+                    return obj.isoformat()
                 if isinstance(obj, dict):
                     return {k: _convert(v) for k, v in obj.items()}
                 if isinstance(obj, list):

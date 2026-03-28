@@ -429,6 +429,74 @@ body.mode-flash #banner { animation: flash .35s ease; }
 }
 #resume-close:hover { color: var(--text); }
 
+/* ── Plan popup ─────────────────────────────────────────── */
+#plan-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.65);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+}
+#plan-overlay.visible { display: flex; }
+#plan-modal {
+  background: #0e0e1a;
+  border: 1px solid #a29bfe44;
+  border-radius: var(--radius);
+  width: min(640px, 94vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+}
+#plan-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid #a29bfe33;
+  font-size: 0.8rem;
+  color: #a29bfe;
+  font-weight: 600;
+}
+#plan-modal-body {
+  overflow-y: auto;
+  flex: 1;
+  padding: 1rem;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.8rem;
+  color: #cdc8ff;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+}
+#plan-modal-close {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+}
+#plan-modal-close:hover { color: white; background: #ffffff22; }
+.log-entry.log-plan {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+.log-zoom-btn {
+  flex-shrink: 0;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: #a29bfe99;
+  line-height: 1;
+  margin-top: 0.05rem;
+  user-select: none;
+}
+.log-zoom-btn:hover { color: #a29bfe; }
+.log-plan-text { flex: 1; }
+
 /* ── IDE layout (modo_dev) ───────────────────────────────── */
 body.ide-mode {
   flex-direction: row;
@@ -627,6 +695,17 @@ body.ide-mode #chat-panel {
 </style>
 </head>
 <body>
+
+<!-- Plan popup -->
+<div id="plan-overlay" onclick="if(event.target===this)closePlanPopup()">
+  <div id="plan-modal">
+    <div id="plan-modal-header">
+      <span>Plan</span>
+      <span id="plan-modal-close" onclick="closePlanPopup()">✕</span>
+    </div>
+    <div id="plan-modal-body"></div>
+  </div>
+</div>
 
 <!-- Resume modal -->
 <div id="resume-overlay">
@@ -1071,7 +1150,20 @@ function createLiveAiMsg() {
 
     const el = document.createElement('div');
     el.className = `log-entry ${cls}`;
-    el.textContent = entry;
+    if (cls === 'log-plan') {
+      const zoom = document.createElement('span');
+      zoom.className = 'log-zoom-btn';
+      zoom.textContent = '🔍';
+      zoom.title = 'Ampliar plan';
+      zoom.onclick = () => showPlanPopup(entry);
+      const txt = document.createElement('span');
+      txt.className = 'log-plan-text';
+      txt.textContent = entry;
+      el.appendChild(zoom);
+      el.appendChild(txt);
+    } else {
+      el.textContent = entry;
+    }
     body.appendChild(el);
     _updateSummary();
     scrollDown();
@@ -1491,6 +1583,18 @@ document.getElementById('resume-close').addEventListener('click', () => {
 });
 resumeOverlay.addEventListener('click', e => {
   if (e.target === resumeOverlay) resumeOverlay.classList.remove('visible');
+});
+
+// ── Plan popup ────────────────────────────────────────────
+function showPlanPopup(text) {
+  document.getElementById('plan-modal-body').textContent = text.replace(/^PLAN>>\s*/, '');
+  document.getElementById('plan-overlay').classList.add('visible');
+}
+function closePlanPopup() {
+  document.getElementById('plan-overlay').classList.remove('visible');
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closePlanPopup();
 });
 
 async function showResume() {

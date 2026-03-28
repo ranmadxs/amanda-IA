@@ -83,6 +83,13 @@ body {
   color: var(--text-dim);
   letter-spacing: 0.06em;
 }
+#banner-info {
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  opacity: 0.7;
+  margin-top: 0.2rem;
+  letter-spacing: 0.04em;
+}
 
 /* LIVE badge en el banner */
 #live-badge {
@@ -321,6 +328,7 @@ body.mode-flash #banner { animation: flash .35s ease; }
 <div id="banner">
   <pre id="banner-text"></pre>
   <span id="banner-subtitle"></span>
+  <div id="banner-info"></div>
   <span id="live-badge"><span id="live-dot"></span>EN VIVO · /watch para detener</span>
 </div>
 
@@ -346,6 +354,7 @@ let liveBubble  = null;   // elemento del DOM con el feed live
 const header     = document.getElementById('header');
 const bannerEl   = document.getElementById('banner-text');
 const subtitleEl = document.getElementById('banner-subtitle');
+const bannerInfo = document.getElementById('banner-info');
 const liveBadge  = document.getElementById('live-badge');
 const messages   = document.getElementById('messages');
 const input      = document.getElementById('chat-input');
@@ -355,9 +364,13 @@ const slashMenu  = document.getElementById('slash-menu');
 // ── Boot ─────────────────────────────────────────────────────────
 async function init() {
   try {
-    const [modsRes, cmdsRes] = await Promise.all([fetch('/api/mods'), fetch('/api/commands')]);
+    const [modsRes, cmdsRes, infoRes] = await Promise.all([
+      fetch('/api/mods'), fetch('/api/commands'), fetch('/api/info')
+    ]);
     mods = await modsRes.json();
     webCommands = await cmdsRes.json();
+    const info = await infoRes.json();
+    bannerInfo.textContent = `v${info.version} · ${info.model} · ${info.cwd}`;
   } catch(e) {
     mods = [{ name:'aia', key:'', displayName:'AiA', banner:'', color:'#7f8c8d', colorDim:'#2c3e50' }];
   }

@@ -285,50 +285,47 @@ async def _list_tools_described(server: dict[str, Any]) -> list[tuple[str, str]]
 
 def get_mode_help(mode_key: str) -> str:
     """
-    Conecta a los servidores del modo activo e introspecciona sus tools.
-    Retorna texto formateado con nombre y descripción de cada tool.
-    mode_key: ej. 'modo_warhammer' o 'modo_monitor'
+    Retorna ayuda conversacional del modo activo: ejemplos de preguntas
+    y comandos slash disponibles.
     """
-    from amanda_ia.config import get_mcp_servers_raw, get_mcp_servers
+    from amanda_ia.config import get_mods_raw
 
-    raw = get_mcp_servers_raw()
-    mode_servers_raw = [s for s in raw if s.get("modo") == mode_key]
-    if not mode_servers_raw:
-        return f"No hay servidores configurados para {mode_key}."
-
-    # Usar los habilitados (get_mcp_servers filtra disabled)
-    enabled_names = {s.get("name") for s in get_mcp_servers()}
+    mods_raw = get_mods_raw()
+    mod = next((m for m in mods_raw if m.get("key") == mode_key), None)
     mode_label = mode_key.replace("modo_", "").replace("_", " ").title()
-    lines = [f"Modo {mode_label} — tools disponibles\n"]
 
-    for srv_raw in mode_servers_raw:
-        name = srv_raw.get("name", "?")
-        url = srv_raw.get("url", "")
-        if name not in enabled_names:
-            lines.append(f"  [{name}] deshabilitado — omitido\n")
-            continue
-        # Usar la config procesada (con sustitución de vars)
-        enabled_servers = get_mcp_servers()
-        srv = next((s for s in enabled_servers if s.get("name") == name), None)
-        if not srv:
-            continue
-        addr = url or srv.get("command", "")
-        lines.append(f"  Servidor: {name}  ({addr})\n")
-        try:
-            tools = anyio.run(_list_tools_described, srv)
-        except BaseException as e:
-            msg = _format_mcp_error(e)
-            lines.append(f"  No se pudo conectar: {msg}\n")
-            lines.append(f"  ¿Está el servidor corriendo?\n")
-            continue
-        if not tools:
-            lines.append("  (sin tools)\n")
-            continue
-        max_len = max(len(t[0]) for t in tools)
-        for tool_name, desc in tools:
-            pad = " " * (max_len - len(tool_name) + 2)
-            desc_str = desc if desc else "(sin descripción)"
-            lines.append(f"  {tool_name}{pad}{desc_str}\n")
-        lines.append("\n")
+    lines = [f"Modo [bold]{mode_label}[/bold] — ¿Qué podés preguntarme?\n\n"]
+
+    # Ejemplos de preguntas por sección
+    examples = mod.get("examples", []) if mod else []
+    if examples:
+        for section in examples:
+            title = section.get("title", "")
+            items = section.get("items", [])
+            if title:
+                lines.append(f"[bold]{title}[/bold]\n")
+            for item in items:
+                lines.append(f'  "{item}"\n')
+            lines.append("\n")
+    else:
+        lines.append("  (Sin ejemplos configurados para este modo)\n\n")
+
+    # Comandos slash del modo
+    slash_cmds = mod.get("slashCommands", []) if mod else []
+    cmd_defs = mod.get("commands", {}) if mod else {}
+    if slash_cmds:
+        lines.append("[bold]Comandos:[/bold]\n")
+        cmd_desc = {
+            "/watch":    "stream de lecturas en tiempo real",
+            "/test":     "corre los tests del proyecto",
+            "/diff":     "muestra los cambios actuales",
+            "/git-log":  "historial de commits",
+            "/files":    "archivos modificados",
+        }
+        for cmd in slash_cmds:
+            desc = cmd_desc.get(cmd, "")
+            if not desc and isinstance(cmd_defs.get(cmd), dict):
+                desc = cmd_defs[cmd].get("shell", "")[:50]
+            lines.append(f"  [dim]{cmd}[/dim]  {desc}\n")
 
     return "".join(lines).rstrip() + "\n"

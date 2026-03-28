@@ -97,6 +97,24 @@ def _web_commands(mode_key: str | None) -> list[dict]:
     return cmds
 
 
+def _server_info() -> dict:
+    """Versión, modelo Ollama y directorio de trabajo."""
+    import os
+    try:
+        import tomllib
+        _toml = tomllib.loads((Path(__file__).resolve().parent.parent / "pyproject.toml").read_text())
+        version = _toml["tool"]["poetry"]["version"]
+    except Exception:
+        version = "?"
+    try:
+        from amanda_ia.config import get_config
+        cfg = get_config()
+        model = cfg.get("model", "?")
+    except Exception:
+        model = "?"
+    return {"version": version, "model": model, "cwd": os.getcwd()}
+
+
 def _help_no_mode() -> str:
     lines = ["Comandos disponibles:\n"]
     for c in _web_commands(None):
@@ -144,6 +162,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(_all_mods_info())
         elif path == "/api/commands":
             self._send_json(_web_commands(_web_mode))
+        elif path == "/api/info":
+            self._send_json(_server_info())
         elif path == "/api/watch":
             self._handle_watch()
         else:

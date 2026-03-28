@@ -744,7 +744,28 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
 
     if msg_lower == "/help":
         if not _active_mode:
-            return "[dim]Sin modo activo. Usa /mod <nombre> para activar uno.[/]"
+            return (
+                "[bold]AiA — ¿Qué podés preguntarme?[/bold]\n\n"
+                "[bold]⏰  Hora y fecha[/bold]\n"
+                '  "¿Qué hora es?"\n'
+                '  "¿Qué día es hoy?"\n'
+                '  "¿Cuántos días faltan para el viernes?"\n\n'
+                "[bold]🌡️  Clima[/bold]\n"
+                '  "¿Qué temperatura hay en Santiago?"\n'
+                '  "¿Cómo está el tiempo en Buenos Aires?"\n'
+                '  "Temperatura en Lima"\n\n'
+                "[bold]💬  Conversación general[/bold]\n"
+                '  "Explícame cómo funciona el protocolo MQTT"\n'
+                '  "Resume este texto: ..."\n'
+                '  "Traduce al inglés: ..."\n'
+                '  "¿Cuál es la diferencia entre X e Y?"\n\n'
+                "[bold]Modos disponibles:[/bold]\n"
+                "  [dim]/mod warhammer[/dim]  estadísticas y lore de Warhammer 40K\n"
+                "  [dim]/mod monitor[/dim]    nivel del estanque en tiempo real\n"
+                "  [dim]/mod dev[/dim]        asistente de programación\n"
+                "  [dim]/mod airbnb[/dim]     gestión de reservas y finanzas\n"
+                "  [dim]/mod list[/dim]       ver todos los modos\n"
+            )
         return get_mode_help(_active_mode)
 
     if msg_lower == "/cache delete":

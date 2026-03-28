@@ -438,16 +438,16 @@ body.mode-flash #banner { animation: flash .35s ease; }
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 0.7rem;
   align-items: center;
-  padding: 0 0.6rem;
-  gap: 1rem;
+  justify-content: center;
+  width: 48px;
   position: fixed;
   bottom: 0;
   left: 0;
-  right: 0;
   z-index: 50;
+  flex-shrink: 0;
 }
 body.ide-mode #ide-statusbar { display: flex; }
-#ide-statusbar-version { opacity: 0.9; }
+#ide-statusbar-version { opacity: 0.9; font-size: 0.58rem; white-space: nowrap; overflow: hidden; text-overflow: clip; }
 
 /* ── Terminal IDE ───────────────────────────────────────── */
 #ide-terminal {
@@ -1645,7 +1645,9 @@ function applyMcpStatus(status) {
 async function ideInit() {
   const info = await fetch('/api/info').then(r => r.json()).catch(() => ({}));
   if (info.version) {
-    document.getElementById('ide-statusbar-version').textContent = `aia@${info.version}`;
+    const sb = document.getElementById('ide-statusbar-version');
+    sb.textContent = `v${info.version}`;
+    sb.title = `aia@${info.version}`;
   }
   if (_ideRoot) { ideRenderTree(_ideRoot); return; }
   _ideRoot = info.cwd || '/';

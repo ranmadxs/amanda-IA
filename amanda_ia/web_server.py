@@ -287,6 +287,19 @@ def run_web(host: str = "0.0.0.0", port: int = 8080) -> None:
     print(f"amanda-IA v{_version}  →  http://localhost:{port}")
     print("Ctrl+C para detener")
 
+    # DEBUG: verificar estado del terminal
+    try:
+        import termios, sys
+        if sys.stdin.isatty():
+            attrs = termios.tcgetattr(sys.stdin.fileno())
+            lflag = attrs[3]
+            isig_on = bool(lflag & termios.ISIG)
+            print(f"[debug] ISIG={'ON' if isig_on else 'OFF (Ctrl+C no manda SIGINT!)'}", flush=True)
+        else:
+            print("[debug] stdin no es tty", flush=True)
+    except Exception as e:
+        print(f"[debug] no pude leer terminal: {e}", flush=True)
+
     # Bloquea hasta que _stop escriba en el pipe (SIGINT o SIGTERM)
     try:
         os.read(_r, 1)

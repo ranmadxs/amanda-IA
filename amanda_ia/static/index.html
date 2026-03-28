@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>amanda-IA</title>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/vs2015.min.css">
-<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/vs2015.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <style>
 :root {
   --accent:     #7f8c8d;
@@ -1330,17 +1330,26 @@ function ideActivateTab(idx) {
   });
 
   // Render editor content
-  const empty = document.getElementById('editor-empty');
-  const wrap  = document.getElementById('editor-code-wrap');
+  const empty  = document.getElementById('editor-empty');
+  const wrap   = document.getElementById('editor-code-wrap');
   const gutter = document.getElementById('editor-gutter');
-  const code  = document.getElementById('editor-code');
-  empty.style.display = 'none';
-  wrap.style.display = 'flex';
+  const code   = document.getElementById('editor-code');
+  empty.style.display  = 'none';
+  wrap.style.display   = 'flex';
 
-  // Syntax highlight
-  const hl = hljs.getLanguage(tab.ext) ? tab.ext : 'plaintext';
-  const highlighted = hljs.highlight(tab.content, { language: hl, ignoreIllegals: true }).value;
-  code.innerHTML = highlighted;
+  // Syntax highlight (con fallback si hljs no carga)
+  const _extAlias = { md:'markdown', ts:'typescript', js:'javascript', py:'python',
+                      sh:'bash', yml:'yaml', toml:'ini', lock:'plaintext', env:'bash' };
+  try {
+    const rawExt = _extAlias[tab.ext] || tab.ext;
+    const lang = (typeof hljs !== 'undefined' && hljs.getLanguage(rawExt)) ? rawExt : 'plaintext';
+    const highlighted = (typeof hljs !== 'undefined')
+      ? hljs.highlight(tab.content, { language: lang, ignoreIllegals: true }).value
+      : tab.content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    code.innerHTML = highlighted;
+  } catch(e) {
+    code.textContent = tab.content;
+  }
 
   // Line numbers
   const lines = tab.content.split('\n');

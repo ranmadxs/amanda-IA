@@ -221,6 +221,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_history_load(self._read_json())
         elif path == "/api/shell":
             self._handle_shell(self._read_json())
+        elif path == "/api/file/save":
+            self._handle_file_save(self._read_json())
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -350,6 +352,24 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json({"path": str(p), "content": content, "ext": p.suffix.lstrip(".").lower()})
         except PermissionError:
             self._send_json({"error": "permission denied"}, 403)
+
+    def _handle_file_save(self, body: dict) -> None:
+        file_path = body.get("path", "")
+        content   = body.get("content", "")
+        if not file_path:
+            self._send_json({"error": "no path"}, 400)
+            return
+        p = Path(file_path)
+        if not p.is_file():
+            self._send_json({"error": "not a file"}, 404)
+            return
+        try:
+            p.write_text(content, encoding="utf-8")
+            self._send_json({"ok": True})
+        except PermissionError:
+            self._send_json({"error": "permission denied"}, 403)
+        except Exception as e:
+            self._send_json({"error": str(e)}, 500)
 
     def _handle_history_load(self, body: dict) -> None:
         global _web_mode

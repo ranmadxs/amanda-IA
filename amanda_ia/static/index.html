@@ -913,6 +913,36 @@ body.ide-mode #ide-editor { display: flex; }
   color: #d4d4d4;
   overflow: visible;
   tab-size: 2;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: inherit;
+  caret-color: #d4d4d4;
+}
+#editor-toolbar {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background: #2d2d2d;
+  border-bottom: 1px solid #252526;
+  flex-shrink: 0;
+}
+#editor-toolbar.visible { display: flex; }
+#editor-save-btn {
+  font-size: 0.72rem;
+  padding: 2px 10px;
+  background: #0078d4;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+#editor-save-btn:hover { background: #005fa3; }
+#editor-dirty-label {
+  font-size: 0.7rem;
+  color: #f9ca24;
 }
 
 /* Chat panel in IDE mode */
@@ -1069,9 +1099,13 @@ body.ide-mode #chat-panel {
         <circle cx="130" cy="158" r="2" fill="#a29bfe"/>
       </svg>
     </div>
+    <div id="editor-toolbar">
+      <button id="editor-save-btn" onclick="ideFileSave()">💾 Guardar</button>
+      <span id="editor-dirty-label">● modificado</span>
+    </div>
     <div id="editor-code-wrap" style="display:none">
       <div id="editor-gutter"></div>
-      <pre id="editor-code"></pre>
+      <textarea id="editor-code" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
     </div>
   </div>
 </div>
@@ -2112,30 +2146,64 @@ function ideActivateTab(idx) {
   });
 
   // Render editor content
-  const empty  = document.getElementById('editor-empty');
-  const wrap   = document.getElementById('editor-code-wrap');
-  const gutter = document.getElementById('editor-gutter');
-  const code   = document.getElementById('editor-code');
+  const empty   = document.getElementById('editor-empty');
+  const wrap    = document.getElementById('editor-code-wrap');
+  const gutter  = document.getElementById('editor-gutter');
+  const code    = document.getElementById('editor-code');
+  const toolbar = document.getElementById('editor-toolbar');
   empty.style.display  = 'none';
   wrap.style.display   = 'flex';
 
-  // Syntax highlight (con fallback si hljs no carga)
-  const _extAlias = { md:'markdown', ts:'typescript', js:'javascript', py:'python',
-                      sh:'bash', yml:'yaml', toml:'ini', lock:'plaintext', env:'bash' };
-  try {
-    const rawExt = _extAlias[tab.ext] || tab.ext;
-    const lang = (typeof hljs !== 'undefined' && hljs.getLanguage(rawExt)) ? rawExt : 'plaintext';
-    const highlighted = (typeof hljs !== 'undefined')
-      ? hljs.highlight(tab.content, { language: lang, ignoreIllegals: true }).value
-      : tab.content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    code.innerHTML = highlighted;
-  } catch(e) {
-    code.textContent = tab.content;
-  }
+  // Textarea editable
+  code.value = tab.content;
+  code.oninput = () => {
+    _openTabs[_activeTab].content = code.value;
+    _openTabs[_activeTab].dirty = true;
+    ideUpdateDirty();
+    // Actualizar números de línea
+    const ls = code.value.split('\n');
+    gutter.innerHTML = ls.map((_, i) => `<div>${i + 1}</div>`).join('');
+  };
+  // Sincronizar scroll del gutter con el textarea
+  code.onscroll = () => { gutter.scrollTop = code.scrollTop; };
+
+  // Tab key → insertar 2 espacios
+  code.onkeydown = (e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const s = code.selectionStart, end = code.selectionEnd;
+      code.value = code.value.substring(0, s) + '  ' + code.value.substring(end);
+      code.selectionStart = code.selectionEnd = s + 2;
+      code.oninput();
+    }
+  };
 
   // Line numbers
   const lines = tab.content.split('\n');
   gutter.innerHTML = lines.map((_, i) => `<div>${i + 1}</div>`).join('');
+
+  ideUpdateDirty();
+}
+
+function ideUpdateDirty() {
+  const toolbar = document.getElementById('editor-toolbar');
+  const dirty = _activeTab !== null && _openTabs[_activeTab]?.dirty;
+  toolbar.classList.toggle('visible', dirty);
+}
+
+async function ideFileSave() {
+  if (_activeTab === null) return;
+  const tab = _openTabs[_activeTab];
+  const res = await fetch('/api/file/save', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ path: tab.path, content: tab.content })
+  }).then(r => r.json()).catch(() => ({ error: 'network' }));
+  if (res.ok) {
+    tab.dirty = false;
+    ideUpdateDirty();
+  } else {
+    alert('Error al guardar: ' + (res.error || 'desconocido'));
+  }
 }
 
 function ideCloseTab(idx) {
@@ -2145,6 +2213,7 @@ function ideCloseTab(idx) {
     document.getElementById('editor-tabs').innerHTML = '';
     document.getElementById('editor-empty').style.display = 'flex';
     document.getElementById('editor-code-wrap').style.display = 'none';
+    document.getElementById('editor-toolbar').classList.remove('visible');
   } else {
     ideActivateTab(Math.min(idx, _openTabs.length - 1));
   }
@@ -2177,6 +2246,7 @@ function closePlanPopup() {
 }
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closePlanPopup();
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); ideFileSave(); }
 });
 
 async function showResume() {

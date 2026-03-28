@@ -804,16 +804,26 @@ body.ide-mode #ide-activity { display: flex; }
 #ide-sidebar {
   display: none;
   width: 220px;
-  min-width: 140px;
-  max-width: 380px;
+  min-width: 100px;
+  max-width: 500px;
   background: #252526;
   flex-direction: column;
-  border-right: 1px solid #3c3c3c;
   overflow: hidden;
   flex-shrink: 0;
-  resize: horizontal;
 }
 body.ide-mode #ide-sidebar { display: flex; }
+
+.ide-resizer {
+  display: none;
+  width: 4px;
+  background: #3c3c3c;
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background .15s;
+  z-index: 10;
+}
+.ide-resizer:hover, .ide-resizer.dragging { background: #0078d4; }
+body.ide-mode .ide-resizer { display: block; }
 #ide-sidebar-title {
   padding: 8px 12px 6px;
   font-size: 0.68rem;
@@ -977,10 +987,10 @@ body.ide-mode #ide-editor { display: flex; }
 }
 body.ide-mode #chat-panel {
   width: 380px;
-  min-width: 260px;
-  max-width: 500px;
+  min-width: 200px;
+  max-width: 700px;
   flex: none;
-  border-left: 1px solid #3c3c3c;
+  border-left: none;
 }
 </style>
 </head>
@@ -1073,6 +1083,8 @@ body.ide-mode #chat-panel {
   </div>
 </div>
 
+<div class="ide-resizer" id="resizer-sidebar"></div>
+
 <!-- IDE: Editor -->
 <div id="ide-editor">
   <div id="editor-tabs"></div>
@@ -1144,6 +1156,8 @@ body.ide-mode #chat-panel {
     <input id="term-input" type="text" autocomplete="off" spellcheck="false" placeholder=""/>
   </div>
 </div>
+
+<div class="ide-resizer" id="resizer-chat"></div>
 
 <!-- Chat panel (siempre visible, derecha en IDE mode) -->
 <div id="chat-panel">
@@ -1397,6 +1411,19 @@ let _lastUserText = '';
 function addFeedbackBar(wrap, question, answerFn, planFn) {
   const bar = document.createElement('div');
   bar.className = 'msg-feedback';
+
+  // Botón copiar
+  const copy = document.createElement('button');
+  copy.className = 'fb-btn';
+  copy.textContent = '📋';
+  copy.title = 'Copiar respuesta';
+  copy.onclick = async () => {
+    await navigator.clipboard.writeText(answerFn());
+    copy.textContent = '✅';
+    setTimeout(() => { copy.textContent = '📋'; }, 1500);
+  };
+  bar.appendChild(copy);
+
   const up   = document.createElement('button');
   const down = document.createElement('button');
   up.className   = 'fb-btn';
@@ -2345,6 +2372,66 @@ async function loadResume(id) {
 
 // ── Go ────────────────────────────────────────────────────────────
 init();
+
+// ── Resizers IDE ──────────────────────────────────────────────────
+(function() {
+  const SIDEBAR_KEY = 'ide_sidebar_w';
+  const CHAT_KEY    = 'ide_chat_w';
+
+  function initResizer(resizerId, getTarget, getSize, setSize, storageKey, direction) {
+    const resizer = document.getElementById(resizerId);
+    if (!resizer) return;
+    let dragging = false, startX = 0, startSize = 0;
+
+    // Restaurar tamaño guardado
+    const saved = localStorage.getItem(storageKey);
+    if (saved) setSize(parseInt(saved));
+
+    resizer.addEventListener('mousedown', e => {
+      dragging = true;
+      startX    = e.clientX;
+      startSize = getSize();
+      resizer.classList.add('dragging');
+      document.body.style.cursor    = 'col-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const delta = direction * (e.clientX - startX);
+      const next  = Math.max(getTarget().style.minWidth ? parseInt(getTarget().style.minWidth) : 100,
+                             startSize + delta);
+      setSize(next);
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      resizer.classList.remove('dragging');
+      document.body.style.cursor    = '';
+      document.body.style.userSelect = '';
+      localStorage.setItem(storageKey, getSize());
+    });
+  }
+
+  const sidebar = document.getElementById('ide-sidebar');
+  const chat    = document.getElementById('chat-panel');
+
+  initResizer('resizer-sidebar',
+    () => sidebar,
+    () => sidebar.offsetWidth,
+    w  => { sidebar.style.width = w + 'px'; },
+    SIDEBAR_KEY, 1
+  );
+
+  initResizer('resizer-chat',
+    () => chat,
+    () => chat.offsetWidth,
+    w  => { chat.style.width = w + 'px'; },
+    CHAT_KEY, -1
+  );
+})();
 </script>
 
 <!-- IDE: Statusbar -->

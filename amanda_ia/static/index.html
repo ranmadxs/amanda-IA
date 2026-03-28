@@ -969,8 +969,48 @@ body.ide-mode #chat-panel {
   <div id="editor-tabs"></div>
   <div id="editor-body">
     <div id="editor-empty">
-      <span style="font-size:2rem">📄</span>
-      <span>Selecciona un archivo</span>
+      <svg viewBox="0 0 260 260" width="210" height="210" xmlns="http://www.w3.org/2000/svg" opacity="0.13">
+        <!-- Outer dashed ring -->
+        <circle cx="130" cy="130" r="120" fill="none" stroke="#a29bfe" stroke-width="1.2" stroke-dasharray="3 7"/>
+        <!-- Inner ring -->
+        <circle cx="130" cy="130" r="108" fill="none" stroke="#a29bfe" stroke-width="0.5"/>
+        <!-- Tick marks (12 × 30°) -->
+        <g stroke="#a29bfe" stroke-width="1.5">
+          <line x1="130" y1="10" x2="130" y2="22"/>
+          <line x1="190" y1="27" x2="184" y2="37.4"/>
+          <line x1="233" y1="70" x2="222.6" y2="76"/>
+          <line x1="250" y1="130" x2="238" y2="130"/>
+          <line x1="233" y1="190" x2="222.6" y2="184"/>
+          <line x1="190" y1="233" x2="184" y2="222.6"/>
+          <line x1="130" y1="250" x2="130" y2="238"/>
+          <line x1="70" y1="233" x2="76" y2="222.6"/>
+          <line x1="27" y1="190" x2="37.4" y2="184"/>
+          <line x1="10" y1="130" x2="22" y2="130"/>
+          <line x1="27" y1="70" x2="37.4" y2="76"/>
+          <line x1="70" y1="27" x2="76" y2="37.4"/>
+        </g>
+        <!-- Cardinal dots -->
+        <circle cx="130" cy="10" r="2.5" fill="#a29bfe"/>
+        <circle cx="250" cy="130" r="2.5" fill="#a29bfe"/>
+        <circle cx="130" cy="250" r="2.5" fill="#a29bfe"/>
+        <circle cx="10" cy="130" r="2.5" fill="#a29bfe"/>
+        <!-- Circular text path -->
+        <path id="seal-arc" d="M 18,130 A 112,112 0 1,1 242,130" fill="none"/>
+        <text font-family="'SF Mono','Fira Code',monospace" font-size="10" fill="#a29bfe" letter-spacing="4.2">
+          <textPath href="#seal-arc" startOffset="5%">AMANDA · INTELIGENCIA · ARTIFICIAL</textPath>
+        </text>
+        <!-- Thin separator ring inside text -->
+        <circle cx="130" cy="130" r="94" fill="none" stroke="#a29bfe" stroke-width="0.4"/>
+        <!-- "A" left — bold, serif -->
+        <text x="64" y="148" font-family="Georgia,'Times New Roman',serif" font-size="72" font-weight="700" fill="#a29bfe" text-anchor="middle" letter-spacing="-2">A</text>
+        <!-- "i" center — thin, elegant -->
+        <text x="130" y="148" font-family="Georgia,'Times New Roman',serif" font-size="58" font-weight="400" font-style="italic" fill="#ffffff" text-anchor="middle">i</text>
+        <!-- "A" right — bold, serif -->
+        <text x="196" y="148" font-family="Georgia,'Times New Roman',serif" font-size="72" font-weight="700" fill="#a29bfe" text-anchor="middle" letter-spacing="-2">A</text>
+        <!-- Underline ornament -->
+        <line x1="72" y1="158" x2="188" y2="158" stroke="#a29bfe" stroke-width="0.7"/>
+        <circle cx="130" cy="158" r="2" fill="#a29bfe"/>
+      </svg>
     </div>
     <div id="editor-code-wrap" style="display:none">
       <div id="editor-gutter"></div>

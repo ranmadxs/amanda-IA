@@ -1662,7 +1662,7 @@ function addMsg(role, text) {
 // ── Log panel en vivo ─────────────────────────────────────────────
 function classifyLog(entry) {
   if (entry.startsWith('PLAN>>'))   return 'log-plan';
-  if (entry.startsWith('LLM>>'))    return 'log-llm';
+  if (entry.includes('LLM>>'))      return 'log-llm';
   if (entry.startsWith('RESULT>>')) return 'log-result';
   if (entry.includes('>>mcp.'))     return 'log-mcp';
   return 'log-other';

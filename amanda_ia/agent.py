@@ -704,7 +704,7 @@ def _plan_execution(message: str, mcp_tools: list, phase: dict) -> None:
             phase.setdefault("log", []).append(f"PLAN>> {cached_plan}")  # noqa: B905
             return
         phase["value"] = "Planificando"  # noqa: B905
-        phase.setdefault("log", []).append(f"LLM>>Ollama.{OLLAMA_MODEL} (plan)")  # noqa: B905
+        phase.setdefault("log", []).append(f"Planificación ?> LLM>>Ollama.{OLLAMA_MODEL} (plan)")  # noqa: B905
         response = ollama_chat(model=OLLAMA_MODEL, messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -909,7 +909,7 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
         else:
             if phase is not None:
                 phase["value"] = "Clasificando"  # noqa: B905
-                phase.setdefault("log", []).append(f"LLM>>Ollama.{CLASSIFIER_MODEL}")  # noqa: B905
+                phase.setdefault("log", []).append(f"Clasificación ?> LLM>>Ollama.{CLASSIFIER_MODEL}")  # noqa: B905
             selected = classify_prompt(message, pool)
             cache_set(cache_key, selected)
 
@@ -952,7 +952,7 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
             # LLM con tools en cada ronda — permite múltiples llamadas secuenciales
             if phase is not None:
                 phase["value"] = "Generando Respuesta"  # noqa: B905
-                phase.setdefault("log", []).append(f"LLM>>Ollama.{OLLAMA_MODEL}")  # noqa: B905
+                phase.setdefault("log", []).append(f"Generando Respuesta ?> LLM>>Ollama.{OLLAMA_MODEL}")  # noqa: B905
             response = ollama_chat(model=OLLAMA_MODEL, messages=messages, tools=tools)
             msg = response.message
 

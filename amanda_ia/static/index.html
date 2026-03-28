@@ -429,6 +429,81 @@ body.mode-flash #banner { animation: flash .35s ease; }
 }
 #resume-close:hover { color: var(--text); }
 
+/* ── IDE statusbar ──────────────────────────────────────── */
+#ide-statusbar {
+  display: none;
+  height: 22px;
+  background: #007acc;
+  color: #fff;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.7rem;
+  align-items: center;
+  padding: 0 0.6rem;
+  gap: 1rem;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+}
+body.ide-mode #ide-statusbar { display: flex; }
+#ide-statusbar-version { opacity: 0.9; }
+
+/* ── Terminal IDE ───────────────────────────────────────── */
+#ide-terminal {
+  display: none;
+  flex-direction: column;
+  background: #0d0d0d;
+  flex: 1;
+  min-width: 0;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.78rem;
+}
+body.ide-mode.term-active #ide-editor   { display: none; }
+body.ide-mode.term-active #ide-terminal { display: flex; }
+#term-output {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.6rem 0.8rem;
+  color: #cccccc;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+}
+.term-line-cmd  { color: #7ec8e3; }
+.term-line-err  { color: #ff6b6b; }
+.term-line-exit { color: #888; font-style: italic; }
+#term-input-row {
+  display: flex;
+  align-items: center;
+  padding: 0.35rem 0.6rem;
+  border-top: 1px solid #222;
+  gap: 0.4rem;
+}
+#term-prompt {
+  color: #7ec8e3;
+  white-space: nowrap;
+  font-size: 0.78rem;
+}
+#term-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e8e8e8;
+  font-family: inherit;
+  font-size: inherit;
+  caret-color: #7ec8e3;
+}
+#term-clear-btn {
+  color: #555;
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+#term-clear-btn:hover { color: #aaa; background: #222; }
+
 /* ── Plan popup ─────────────────────────────────────────── */
 #plan-overlay {
   display: none;
@@ -736,6 +811,12 @@ body.ide-mode #chat-panel {
       <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
     </svg>
   </div>
+  <div class="ide-act-btn" id="btn-terminal" title="Terminal" onclick="ideSwitchPanel('terminal')">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <polyline points="4 17 10 11 4 5"/>
+      <line x1="12" y1="19" x2="20" y2="19"/>
+    </svg>
+  </div>
   <div class="ide-act-btn" id="btn-mongo" title="MongoDB" onclick="ideSwitchPanel('mongo')">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
       <ellipse cx="12" cy="6" rx="7" ry="3"/>
@@ -770,6 +851,16 @@ body.ide-mode #chat-panel {
       <div id="editor-gutter"></div>
       <pre id="editor-code"></pre>
     </div>
+  </div>
+</div>
+
+<!-- IDE: Terminal -->
+<div id="ide-terminal" style="display:none">
+  <div id="term-output"></div>
+  <div id="term-input-row">
+    <span id="term-prompt">❯</span>
+    <input id="term-input" type="text" autocomplete="off" spellcheck="false" placeholder="comando…"/>
+    <span id="term-clear-btn" title="Limpiar" onclick="termClear()">⌫ clear</span>
   </div>
 </div>
 
@@ -1354,12 +1445,100 @@ function ideSwitchPanel(name) {
   document.getElementById('panel-explorer').style.display = name === 'explorer' ? 'block' : 'none';
   const mp = document.getElementById('panel-mongo');
   mp.style.display = name === 'mongo' ? 'flex' : 'none';
-  document.getElementById('ide-sidebar-title').textContent =
-    name === 'explorer' ? 'Explorer' : 'MongoDB';
+  const titles = { explorer: 'Explorer', mongo: 'MongoDB', terminal: 'Terminal' };
+  document.getElementById('ide-sidebar-title').textContent = titles[name] || name;
   document.getElementById('btn-explorer').classList.toggle('active', name === 'explorer');
   document.getElementById('btn-mongo').classList.toggle('active', name === 'mongo');
+  document.getElementById('btn-terminal').classList.toggle('active', name === 'terminal');
+  // Terminal: ocupa espacio del editor
+  document.body.classList.toggle('term-active', name === 'terminal');
   if (name === 'mongo') mongoInit();
+  if (name === 'terminal') termFocus();
 }
+
+// ── Terminal ──────────────────────────────────────────────────────
+let _termCwd = null;
+
+async function termInit() {
+  if (_termCwd) return;
+  const info = await fetch('/api/info').then(r => r.json()).catch(() => ({}));
+  _termCwd = info.cwd || '/';
+  termUpdatePrompt();
+}
+
+function termUpdatePrompt() {
+  const short = _termCwd ? _termCwd.replace(/.*\/([^/]+)$/, '$1') : '~';
+  document.getElementById('term-prompt').textContent = `${short} ❯`;
+}
+
+function termFocus() {
+  termInit();
+  document.getElementById('term-input').focus();
+}
+
+function termClear() {
+  document.getElementById('term-output').innerHTML = '';
+}
+
+function termAppend(text, cls) {
+  const out = document.getElementById('term-output');
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = text;
+  out.appendChild(line);
+  out.scrollTop = out.scrollHeight;
+}
+
+async function termRun(cmd) {
+  if (!cmd.trim()) return;
+  termAppend(`${document.getElementById('term-prompt').textContent} ${cmd}`, 'term-line-cmd');
+  // Detectar cd: cambiar cwd localmente
+  const cdMatch = cmd.trim().match(/^cd\s+(.+)$/);
+  if (cdMatch) {
+    const target = cdMatch[1].trim();
+    const res = await fetch('/api/shell', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ cmd: `cd ${target} && pwd`, cwd: _termCwd })
+    }).then(r => r.json()).catch(() => null);
+    if (res && res.returncode === 0 && res.stdout.trim()) {
+      _termCwd = res.stdout.trim();
+      termUpdatePrompt();
+    } else {
+      termAppend(res?.stderr || 'Error', 'term-line-err');
+    }
+    return;
+  }
+  const res = await fetch('/api/shell', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ cmd, cwd: _termCwd })
+  }).then(r => r.json()).catch(() => ({ stdout: '', stderr: 'Error de red', returncode: -1 }));
+  if (res.stdout) termAppend(res.stdout.replace(/\n$/, ''));
+  if (res.stderr) termAppend(res.stderr.replace(/\n$/, ''), 'term-line-err');
+  if (!res.stdout && !res.stderr) termAppend(`[exit ${res.returncode}]`, 'term-line-exit');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const ti = document.getElementById('term-input');
+  if (!ti) return;
+  const history = [];
+  let histIdx = -1;
+  ti.addEventListener('keydown', async e => {
+    if (e.key === 'Enter') {
+      const cmd = ti.value;
+      ti.value = '';
+      histIdx = -1;
+      if (cmd.trim()) history.unshift(cmd);
+      await termRun(cmd);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (histIdx < history.length - 1) { histIdx++; ti.value = history[histIdx]; }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (histIdx > 0) { histIdx--; ti.value = history[histIdx]; }
+      else { histIdx = -1; ti.value = ''; }
+    }
+  });
+});
 
 // ── MongoDB explorer ──────────────────────────────────────────────
 let _mongoLoaded = false;
@@ -1464,8 +1643,11 @@ function applyMcpStatus(status) {
 }
 
 async function ideInit() {
-  if (_ideRoot) { ideRenderTree(_ideRoot); return; }
   const info = await fetch('/api/info').then(r => r.json()).catch(() => ({}));
+  if (info.version) {
+    document.getElementById('ide-statusbar-version').textContent = `aia@${info.version}`;
+  }
+  if (_ideRoot) { ideRenderTree(_ideRoot); return; }
   _ideRoot = info.cwd || '/';
   ideLoadDir(_ideRoot, document.getElementById('file-tree'), 0, true);
 }
@@ -1668,5 +1850,10 @@ async function loadResume(id) {
 // ── Go ────────────────────────────────────────────────────────────
 init();
 </script>
+
+<!-- IDE: Statusbar -->
+<div id="ide-statusbar">
+  <span id="ide-statusbar-version">aia@…</span>
+</div>
 </body>
 </html>

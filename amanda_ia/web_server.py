@@ -216,6 +216,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_chat(self._read_json())
         elif path == "/api/history/load":
             self._handle_history_load(self._read_json())
+        elif path == "/api/shell":
+            self._handle_shell(self._read_json())
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -373,6 +375,33 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(data)
+
+    # ── Shell terminal ──
+
+    def _handle_shell(self, body: dict) -> None:
+        import os
+        import subprocess
+        cmd = (body.get("cmd") or "").strip()
+        cwd = (body.get("cwd") or "").strip() or os.getcwd()
+        if not cmd:
+            self._send_json({"error": "cmd required"}, 400)
+            return
+        _interactive = ("vim", "vi", "nano", "less", "more", "top", "htop",
+                        "man", "watch", "ssh", "ftp", "python", "ipython",
+                        "bash", "zsh", "sh", "fish")
+        first_word = cmd.split()[0].split("/")[-1]
+        if first_word in _interactive:
+            self._send_json({"stdout": "", "stderr": f"'{first_word}' es interactivo y no puede correr aquí.", "returncode": 1})
+            return
+        try:
+            result = subprocess.run(
+                cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=cwd
+            )
+            self._send_json({"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode})
+        except subprocess.TimeoutExpired:
+            self._send_json({"stdout": "", "stderr": "Timeout (30s).", "returncode": -1})
+        except Exception as e:
+            self._send_json({"stdout": "", "stderr": str(e), "returncode": -1})
 
     # ── MongoDB explorer ──
 

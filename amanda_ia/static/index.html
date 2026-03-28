@@ -1410,7 +1410,15 @@ function applyMod(mod, animate) {
   // IDE mode: activar/desactivar layout
   const isIde = mod.key === 'modo_dev';
   document.body.classList.toggle('ide-mode', isIde);
-  if (isIde) ideInit();
+  if (isIde) {
+    ideInit();
+  } else {
+    // Limpiar inline widths que dejan los resizers al salir del IDE
+    const chatPanel = document.getElementById('chat-panel');
+    if (chatPanel) chatPanel.style.width = '';
+    const sidebarEl = document.getElementById('ide-sidebar');
+    if (sidebarEl) sidebarEl.style.width = '';
+  }
 }
 
 // ── Live Monitor (/watch) ─────────────────────────────────────────

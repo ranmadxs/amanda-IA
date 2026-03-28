@@ -1002,7 +1002,9 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                 if mcp_load_failed:
                     content += "\n\n[dim]Nota: No se cargaron las herramientas MCP. ¿Están los servidores corriendo? (ej: cd aia-mcp && poetry run mcp all --http). Prueba /cache delete si el clasificador falló.[/]"
                 if pending_images:
-                    content = "\n".join(pending_images) + "\n" + content
+                    new_imgs = [img for img in pending_images if img not in content]
+                    if new_imgs:
+                        content = "\n".join(new_imgs) + "\n" + content
                 clean = [
                     m for m in messages[1:]
                     if m.get("role") in ("user", "assistant")

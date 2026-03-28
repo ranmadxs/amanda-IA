@@ -19,7 +19,7 @@ from pathlib import Path
 
 import amanda_ia.agent as agent_mod
 from amanda_ia.agent import process
-from amanda_ia.config import get_mods, get_mods_raw
+from amanda_ia.config import get_mods, get_mods_raw, server_in_modo
 import amanda_ia.history as _history_mod
 
 RESOURCES = Path(__file__).resolve().parent / "resources"
@@ -75,7 +75,7 @@ def _all_mods_info() -> list[dict]:
         # Servidores MCP configurados para este modo
         mode_mcps = [
             s.get("name", "") for s in mcp_raw
-            if s.get("modo") == key
+            if server_in_modo(s, key)
         ]
         result.append({
             "name": m.get("name"),

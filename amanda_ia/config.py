@@ -271,6 +271,16 @@ def set_mod_enabled(name: str, enabled: bool) -> bool:
     return False
 
 
+def server_in_modo(server: dict, mode_key: str) -> bool:
+    """True si el server pertenece al modo indicado.
+    El campo 'modo' puede ser 'modo_airbnb' o 'modo_airbnb,modo_monitor' (coma-separado).
+    """
+    raw = server.get("modo", "")
+    if not raw:
+        return False
+    return mode_key in [m.strip() for m in raw.split(",")]
+
+
 def get_config_paths() -> dict[str, str]:
     """Rutas de los archivos de config (para mostrar en UI)."""
     home = _home()

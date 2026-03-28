@@ -80,7 +80,7 @@ from rich.console import Console
 from amanda_ia.tools import get_tools, execute_tool
 from amanda_ia.config import get_mcp_display_names, get_mcp_servers, get_mcp_servers_raw, set_mcp_server_enabled
 from amanda_ia.config import get_mods_raw, get_mods, set_mod_enabled
-from amanda_ia.config import _project_root
+from amanda_ia.config import _project_root, server_in_modo
 from amanda_ia.mcp_client import get_mcp_server_info, invalidate_mcp_cache, get_server_name_for_tool, get_server_transport, get_mode_help
 from amanda_ia.classifier import classify_prompt, CLASSIFIER_MODEL
 from amanda_ia.classifier_cache import get as cache_get, set_ as cache_set, delete_all as cache_delete_all
@@ -403,7 +403,7 @@ def _run_mcp_command(parts: list[str]) -> str:
             return "[dim]No hay servidores MCP en .aia/mcp.json[/]"
         # Filtrar según modo activo
         if _active_mode:
-            active = [s for s in servers if s.get("modo") == _active_mode]
+            active = [s for s in servers if server_in_modo(s, _active_mode)]
             ctx_label = f"Modo {_active_mode.replace('modo_', '').replace('_', ' ').title()}"
         else:
             active = [s for s in servers if not s.get("modo")]
@@ -509,9 +509,13 @@ def _get_available_modes() -> list[str]:
     servers = get_mcp_servers_raw()
     modos = set()
     for s in servers:
-        m = s.get("modo")
-        if m and isinstance(m, str) and m.startswith("modo_"):
-            modos.add(m.replace("modo_", "", 1))
+        raw = s.get("modo", "")
+        if not raw:
+            continue
+        for m in raw.split(","):
+            m = m.strip()
+            if m.startswith("modo_"):
+                modos.add(m.replace("modo_", "", 1))
     return sorted(modos)
 
 
@@ -546,8 +550,8 @@ class _SlashCompleter(Completer):
 
 
 def _get_servers_by_mode(servers: list, mode: str) -> list[str]:
-    """MCPs que tienen modo igual al indicado (ej: modo_warhammer)."""
-    return [s["name"] for s in servers if s.get("modo") == mode and s.get("name")]
+    """MCPs que tienen modo igual al indicado. Soporta modo coma-separado."""
+    return [s["name"] for s in servers if server_in_modo(s, mode) and s.get("name")]
 
 
 def _get_servers_for_general_mode(servers: list) -> list:

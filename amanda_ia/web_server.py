@@ -410,7 +410,10 @@ class _Handler(BaseHTTPRequestHandler):
         with _lock:
             agent_mod._active_mode = mode
             agent_mod._conversation_history = messages
-        self._send_json({"ok": True})
+        self._send_json({"ok": True, "messages": [
+            {"role": m["role"], "content": m["content"]}
+            for m in messages if m.get("role") in ("user", "assistant") and m.get("content")
+        ]})
 
     def _handle_image(self) -> None:
         from urllib.parse import parse_qs, urlparse

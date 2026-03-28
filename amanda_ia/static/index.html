@@ -1549,7 +1549,7 @@ async function init() {
     mods = await modsRes.json();
     webCommands = await cmdsRes.json();
     const info = await infoRes.json();
-    bannerInfo.textContent = `v${info.version} · ${info.model} · ${info.cwd}`;
+    bannerInfo.textContent = `aia@${info.version} · Ollama: ${info.model} · ${info.cwd}`;
   } catch(e) {
     mods = [{ name:'aia', key:'', displayName:'AiA', banner:'', color:'#7f8c8d', colorDim:'#2c3e50' }];
   }
@@ -1602,12 +1602,7 @@ function applyMod(mod, animate) {
   document.documentElement.style.setProperty('--accent',     mod.color);
   document.documentElement.style.setProperty('--accent-dim', mod.colorDim);
   bannerEl.textContent = mod.banner || mod.displayName;
-  const modeLabel = mod.key ? `modo ${mod.name}` : 'asistente general';
-  if (mod.mcpServers && mod.mcpServers.length) {
-    subtitleEl.textContent = `${modeLabel}  ·  🟢 ${mod.mcpServers.join('  🟢 ')}`;
-  } else {
-    subtitleEl.textContent = modeLabel;
-  }
+  subtitleEl.textContent = '';
   document.title = `amanda-IA · ${mod.displayName}`;
   document.querySelectorAll('.mode-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.key === mod.key)

@@ -531,6 +531,19 @@ body.ide-mode #ide-activity { display: flex; }
 .ide-act-btn:hover { color: #cccccc; background: #2a2d2e; }
 .ide-act-btn.active { color: #ffffff; border-left: 2px solid #ffffff; border-radius: 0; }
 #btn-mongo.active { border-left-color: #00ed64; color: #00ed64; }
+.ide-act-btn.mcp-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  position: relative;
+}
+.ide-act-btn.mcp-disabled::after {
+  content: '🔒';
+  font-size: 0.55rem;
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  line-height: 1;
+}
 
 /* MongoDB tree */
 .mg-db   { color: #00ed64; font-weight: 600; }
@@ -844,6 +857,7 @@ async function selectMod(mod) {
   });
   const data = await res.json();
   if (data.commands) webCommands = data.commands;
+  if (data.mcpStatus) applyMcpStatus(data.mcpStatus);
   messages.innerHTML = '';
   addSystemMsg(`Modo ${mod.displayName} activado`);
 }
@@ -1429,6 +1443,25 @@ let _ideRoot = null;       // ruta raíz cargada
 let _openTabs = [];        // [{path, name, ext, content}]
 let _activeTab = null;
 let _expandedDirs = new Set();
+
+// MCP name → activity bar button id
+const _mcpBtnMap = { mongodb: 'btn-mongo' };
+
+function applyMcpStatus(status) {
+  for (const [mcp, btnId] of Object.entries(_mcpBtnMap)) {
+    const btn = document.getElementById(btnId);
+    if (!btn) continue;
+    const enabled = status[mcp] !== false && status[mcp] !== undefined ? status[mcp] : false;
+    btn.classList.toggle('mcp-disabled', !enabled);
+    if (!enabled) {
+      btn.onclick = null;  // bloquear click
+      btn.title = `MongoDB (MCP deshabilitado)`;
+    } else {
+      btn.onclick = () => ideSwitchPanel('mongo');
+      btn.title = 'MongoDB';
+    }
+  }
+}
 
 async function ideInit() {
   if (_ideRoot) { ideRenderTree(_ideRoot); return; }

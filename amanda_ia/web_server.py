@@ -228,7 +228,10 @@ class _Handler(BaseHTTPRequestHandler):
             _web_mode = key if key else None
             agent_mod._active_mode = _web_mode or ""
             agent_mod._conversation_history.clear()
-        self._send_json({"ok": True, "mode": _web_mode, "commands": _web_commands(_web_mode)})
+        from amanda_ia.config import get_mcp_servers_raw
+        mcp_status = {s["name"]: s.get("enabled") is not False
+                      for s in get_mcp_servers_raw() if s.get("name")}
+        self._send_json({"ok": True, "mode": _web_mode, "commands": _web_commands(_web_mode), "mcpStatus": mcp_status})
 
     def _handle_chat(self, body: dict) -> None:
         text = body.get("text", "").strip()

@@ -657,10 +657,9 @@ function createLiveAiMsg() {
   label.className = 'msg-label';
   label.textContent = currentMod?.displayName || 'AiA';
 
-  // Panel de logs abierto desde el inicio
+  // Panel de logs colapsado por defecto, se actualiza en vivo
   const details = document.createElement('details');
   details.className = 'log-panel';
-  details.open = true;
 
   const summary = document.createElement('summary');
   summary.className = 'log-summary';
@@ -680,8 +679,14 @@ function createLiveAiMsg() {
   body.className = 'log-body';
   details.appendChild(body);
 
+  // Dots de carga debajo del panel
+  const dots = document.createElement('div');
+  dots.className = 'typing';
+  dots.innerHTML = '<span></span><span></span><span></span>';
+
   wrap.appendChild(label);
   wrap.appendChild(details);
+  wrap.appendChild(dots);
   messages.appendChild(wrap);
   scrollDown();
 
@@ -733,8 +738,7 @@ function createLiveAiMsg() {
   }
 
   function finalize(text) {
-    // Colapsar el panel y agregar burbuja de respuesta
-    details.open = false;
+    dots.remove();
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
     bubble.textContent = text;

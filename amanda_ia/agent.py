@@ -954,6 +954,9 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                     if phase is not None:
                         phase.setdefault("log", []).append(_fmt_tool_call(server_name, name, args))  # noqa: B905
                     result = execute_tool(name, args)
+                    if phase is not None:
+                        _r = result or ""
+                        phase.setdefault("log", []).append(f"RESULT>> {_r[:400]}{'…' if len(_r) > 400 else ''}")  # noqa: B905
                     last_tool_result = result
                     pending_images.extend(_img_re.findall(result))
                     messages.append({"role": "tool", "tool_name": name, "content": result})
@@ -981,6 +984,9 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                 if phase is not None:
                     phase.setdefault("log", []).append(_fmt_tool_call(server_name, name, params))  # noqa: B905
                 result = execute_tool(name, params)
+                if phase is not None:
+                    _r = result or ""
+                    phase.setdefault("log", []).append(f"RESULT>> {_r[:400]}{'…' if len(_r) > 400 else ''}")  # noqa: B905
                 last_tool_result = result
                 pending_images.extend(_img_re.findall(result))
                 if name == "start_live_monitor":

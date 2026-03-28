@@ -1216,8 +1216,7 @@ body.ide-mode #chat-panel {
 .mcp-status { font-size: 0.7rem; flex-shrink: 0; }
 body.ide-mode #settings-btn { display: none; }
 #btn-settings-ide {
-  margin-top: auto;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
 }
 #settings-detail {
   flex: 1;
@@ -1243,8 +1242,9 @@ body.ide-mode #settings-btn { display: none; }
   margin-right: 4px;
   margin-bottom: 0.7rem;
 }
-.sd-badge.enabled  { background: #0d2e1a; color: #55efc4; border: 1px solid #1a5c38; }
-.sd-badge.disabled { background: #2e0d0d; color: #e17055; border: 1px solid #5c1a1a; }
+.sd-badge.enabled   { background: #0d2e1a; color: #55efc4; border: 1px solid #1a5c38; }
+.sd-badge.disabled  { background: #2e0d0d; color: #e17055; border: 1px solid #5c1a1a; }
+.sd-badge.inactive  { background: #1e1e1e; color: #636e72; border: 1px solid #2d3436; }
 .sd-badge.global   { background: #1a1a3a; color: #74b9ff; border: 1px solid #2a2a6a; }
 .sd-badge.modo     { background: #1a1a2e; color: #a29bfe; border: 1px solid #3a3a6e; }
 .sd-section {
@@ -2979,6 +2979,7 @@ async function loadResume(id) {
 
 // ── Settings MCP ─────────────────────────────────────────────────
 let _mcpAll = [];
+let _activeModeNames = new Set();
 
 async function settingsOpen() {
   document.getElementById('settings-overlay').classList.add('visible');
@@ -2991,9 +2992,9 @@ async function settingsOpen() {
     _mcpAll = [];
   }
   // Servidores activos para el modo actual
-  const activeModeNames = new Set(currentMod ? (currentMod.mcpServers || []) : []);
-  const inMode  = _mcpAll.map((s,i) => ({s,i})).filter(({s}) => activeModeNames.has(s.name));
-  const outMode = _mcpAll.map((s,i) => ({s,i})).filter(({s}) => !activeModeNames.has(s.name));
+  _activeModeNames = new Set(currentMod ? (currentMod.mcpServers || []) : []);
+  const inMode  = _mcpAll.map((s,i) => ({s,i})).filter(({s}) => _activeModeNames.has(s.name));
+  const outMode = _mcpAll.map((s,i) => ({s,i})).filter(({s}) => !_activeModeNames.has(s.name));
 
   const list = document.getElementById('settings-list');
 
@@ -3033,9 +3034,12 @@ function settingsSelect(idx, rowEl) {
   const s = _mcpAll[idx];
   const detail = document.getElementById('settings-detail');
 
-  const enabledBadge = s.enabled
-    ? '<span class="sd-badge enabled">🟢 habilitado</span>'
-    : '<span class="sd-badge disabled">🔴 deshabilitado</span>';
+  const inCurrentMode = _activeModeNames.has(s.name);
+  const enabledBadge = !inCurrentMode && s.enabled
+    ? '<span class="sd-badge inactive">⚫ no disponible en este modo</span>'
+    : s.enabled
+      ? '<span class="sd-badge enabled">🟢 habilitado</span>'
+      : '<span class="sd-badge disabled">🔴 deshabilitado</span>';
   const modoBadge = s.modo === 'ALL'
     ? '<span class="sd-badge global">🌐 ALL</span>'
     : s.modo

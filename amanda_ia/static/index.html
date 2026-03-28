@@ -2068,19 +2068,64 @@ function addFeedbackBar(wrap, question, answerFn, planFn) {
 /// Rellena un elemento .msg-bubble con texto, imágenes [AIA_IMG:url] y archivos [AIA_FILE:/path]
 function fillBubble(el, text) {
   const TOKEN_RE = /\[AIA_IMG:([^\]]+)\]|\[AIA_FILE:([^\]]+)\]/g;
+  const isIde    = document.body.classList.contains('ide-mode');
+  const hasFile  = isIde && /\[AIA_FILE:/.test(text);
+  el.innerHTML   = '';
+
+  // En ide-mode con archivo: texto colapsado, chip prominente
+  if (hasFile) {
+    const details = document.createElement('details');
+    details.style.cssText = 'margin-bottom:0.35rem;';
+    const summary = document.createElement('summary');
+    summary.style.cssText = 'cursor:pointer;color:var(--text-dim);font-size:0.73rem;user-select:none;list-style:none;display:flex;align-items:center;gap:4px;';
+    summary.innerHTML = '<span style="font-size:.6rem;transition:transform .15s">▶</span> ver respuesta';
+    details.addEventListener('toggle', () => {
+      summary.querySelector('span').style.transform = details.open ? 'rotate(90deg)' : '';
+    });
+    details.appendChild(summary);
+    const textWrap = document.createElement('div');
+    textWrap.style.cssText = 'margin-top:0.4rem;white-space:pre-wrap;';
+    details.appendChild(textWrap);
+    el.appendChild(details);
+
+    let last = 0, m;
+    TOKEN_RE.lastIndex = 0;
+    while ((m = TOKEN_RE.exec(text)) !== null) {
+      if (m.index > last) textWrap.appendChild(document.createTextNode(text.slice(last, m.index)));
+      if (m[1]) {
+        const img = document.createElement('img');
+        img.src = m[1];
+        img.style.cssText = 'max-width:100%;border-radius:6px;margin-top:0.4rem;display:block';
+        textWrap.appendChild(img);
+      } else if (m[2]) {
+        const path  = m[2].trim();
+        const fname = path.split('/').pop();
+        const ext   = fname.includes('.') ? fname.split('.').pop().toLowerCase() : '';
+        const chip  = document.createElement('span');
+        chip.style.cssText = 'display:inline-flex;align-items:center;gap:5px;background:#0d2137;border:1px solid #0078d4;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:0.84em;color:#4fc3f7;margin:2px 0;';
+        chip.textContent = _fileIcon(ext) + ' ' + fname;
+        chip.title = path;
+        chip.onclick = () => ideOpenAndSelect(path, fname, ext);
+        el.appendChild(chip); // chip fuera del details, siempre visible
+        setTimeout(() => ideOpenAndSelect(path, fname, ext), 100);
+      }
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) textWrap.appendChild(document.createTextNode(text.slice(last)));
+    return;
+  }
+
+  // Modo normal (no ide-mode o sin archivos)
   let last = 0, m;
-  el.innerHTML = '';
   while ((m = TOKEN_RE.exec(text)) !== null) {
     if (m.index > last) el.appendChild(document.createTextNode(text.slice(last, m.index)));
     if (m[1]) {
-      // Imagen
       const img = document.createElement('img');
       img.src = m[1];
       img.style.cssText = 'max-width:100%;border-radius:6px;margin-top:0.4rem;display:block';
       el.appendChild(img);
     } else if (m[2]) {
-      // Archivo — chip clickable + auto-abrir
-      const path = m[2].trim();
+      const path  = m[2].trim();
       const fname = path.split('/').pop();
       const ext   = fname.includes('.') ? fname.split('.').pop().toLowerCase() : '';
       const chip  = document.createElement('span');
@@ -2089,7 +2134,6 @@ function fillBubble(el, text) {
       chip.title = path;
       chip.onclick = () => ideOpenAndSelect(path, fname, ext);
       el.appendChild(chip);
-      // Auto-abrir sin esperar click
       setTimeout(() => ideOpenAndSelect(path, fname, ext), 100);
     }
     last = m.index + m[0].length;

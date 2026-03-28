@@ -481,6 +481,36 @@ body.ide-mode #ide-statusbar { display: flex; }
 .sh-btn.running { color: #f9ca24; border-left-color: #f9ca24; }
 .sh-btn.passed  { color: #80d740; border-left-color: #80d740; }
 .sh-btn.failed  { color: #f28b82; border-left-color: #f28b82; }
+.sh-diff-btn    { color: #74b9ff; }
+.sh-git-branch  { margin-left: auto; font-size: 0.68rem; color: #f9ca24; font-family: 'SF Mono',monospace; }
+.sh-section-sep {
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em;
+  color: #444; padding: 0.3rem 0.8rem 0.1rem; text-transform: uppercase;
+}
+.git-file-row {
+  display: flex; align-items: center;
+  padding: 0.22rem 0.5rem 0.22rem 1rem;
+  gap: 0.35rem; font-size: 0.72rem;
+  font-family: 'SF Mono','Fira Code',monospace;
+}
+.git-file-status { font-size: 0.68rem; width: 14px; flex-shrink: 0; }
+.git-file-status.M { color: #f9ca24; }
+.git-file-status.A { color: #80d740; }
+.git-file-status.D { color: #f28b82; }
+.git-file-status.R { color: #74b9ff; }
+.git-file-name { flex: 1; color: #c0c0c0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-file-diff {
+  font-size: 0.65rem; color: #555; cursor: pointer;
+  padding: 0.1rem 0.3rem; border-radius: 3px; border: 1px solid #333;
+  flex-shrink: 0;
+}
+.git-file-diff:hover { color: #74b9ff; border-color: #74b9ff; }
+.tf-run-btn {
+  font-size: 0.65rem; color: #555; cursor: pointer;
+  padding: 0.1rem 0.3rem; border-radius: 3px; border: 1px solid #333;
+  flex-shrink: 0; margin-left: auto;
+}
+.tf-run-btn:hover { color: #80d740; border-color: #80d740; }
 
 .test-section-label {
   font-size: 0.65rem;
@@ -975,17 +1005,19 @@ body.ide-mode #chat-panel {
     <div class="sh-group-header" onclick="shToggle('git')">
       <span class="sh-arrow" id="sh-arrow-git">▶</span>
       <span>Git</span>
+      <span id="sh-git-branch" class="sh-git-branch"></span>
     </div>
     <div id="sh-body-git" class="sh-group-body" style="display:none">
-      <div class="sh-btn" onclick="termRun('git status')">git status</div>
-      <div class="sh-btn" onclick="termRun('git log --oneline -10')">git log</div>
-      <div class="sh-btn" onclick="termRun('git diff')">git diff</div>
-      <div class="sh-btn" onclick="termRun('git pull')">git pull</div>
-      <div class="sh-btn" onclick="termRun('git push')">git push</div>
-      <div class="sh-btn" onclick="termRun('git stash')">git stash</div>
+      <div id="git-diff-all-btn" class="sh-btn sh-diff-btn" onclick="termRun('git diff')">⊟ diff general</div>
+      <div class="sh-section-sep">Archivos modificados</div>
+      <div id="git-changed-files"></div>
+      <div class="sh-section-sep" style="margin-top:2px">Acciones</div>
+      <div class="sh-btn" onclick="termRun('git pull')">⬇ git pull</div>
+      <div class="sh-btn" onclick="termRun('git push')">⬆ git push</div>
+      <div class="sh-btn" onclick="termRun('git stash')">📦 git stash</div>
     </div>
-    <!-- Archivos de test -->
-    <div class="test-section-label" style="margin-top:0.3rem">Archivos</div>
+    <!-- Test files -->
+    <div class="test-section-label" style="margin-top:0.3rem">Archivos de test</div>
     <div id="test-file-list" style="overflow-y:auto;flex:1;font-size:0.75rem;"></div>
   </div>
 </div>
@@ -1738,12 +1770,60 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ── Sidebar collapsibles ──────────────────────────────────────────
-function shToggle(name) {
+async function shToggle(name) {
   const body  = document.getElementById(`sh-body-${name}`);
   const arrow = document.getElementById(`sh-arrow-${name}`);
   const open  = body.style.display === 'none';
   body.style.display  = open ? 'flex' : 'none';
   arrow.classList.toggle('open', open);
+  if (open && name === 'git') await gitLoadStatus();
+}
+
+async function gitLoadStatus() {
+  if (!_termCwd) return;
+  // Rama
+  const branchEl = document.getElementById('sh-git-branch');
+  // Status de archivos modificados
+  const changedEl = document.getElementById('git-changed-files');
+  changedEl.innerHTML = '<div style="padding:0.3rem 1rem;color:#555;font-size:0.7rem">Cargando…</div>';
+
+  const [branchRes, statusRes] = await Promise.all([
+    fetch('/api/shell', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ cmd: 'git branch --show-current 2>/dev/null', cwd: _termCwd }) }).then(r=>r.json()).catch(()=>({})),
+    fetch('/api/shell', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ cmd: 'git status --short 2>/dev/null', cwd: _termCwd }) }).then(r=>r.json()).catch(()=>({})),
+  ]);
+
+  const branch = (branchRes.stdout || '').trim();
+  if (branchEl) branchEl.textContent = branch ? `(${branch})` : '';
+
+  const lines = (statusRes.stdout || '').trim().split('\n').filter(Boolean);
+  changedEl.innerHTML = '';
+  if (!lines.length) {
+    changedEl.innerHTML = '<div style="padding:0.3rem 1rem;color:#555;font-size:0.7rem">Sin cambios</div>';
+    return;
+  }
+  for (const line of lines) {
+    const st   = line.slice(0,2).trim() || '?';
+    const file = line.slice(3).trim().replace(/^"(.*)"$/, '$1');
+    const row  = document.createElement('div');
+    row.className = 'git-file-row';
+    const stEl = document.createElement('span');
+    stEl.className = `git-file-status ${st[0]}`;
+    stEl.textContent = st;
+    const nameEl = document.createElement('span');
+    nameEl.className = 'git-file-name';
+    nameEl.textContent = file.split('/').pop();
+    nameEl.title = file;
+    const diffBtn = document.createElement('span');
+    diffBtn.className = 'git-file-diff';
+    diffBtn.textContent = 'diff';
+    diffBtn.onclick = () => termRun(`git diff -- "${file}"`);
+    row.appendChild(stEl);
+    row.appendChild(nameEl);
+    row.appendChild(diffBtn);
+    changedEl.appendChild(row);
+  }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────
@@ -1772,12 +1852,25 @@ async function testLoadFiles() {
     return;
   }
   for (const f of files) {
-    const name = f.replace(/^.*\//, '');
+    const fname = f.replace(/^.*\//, '');
     const row = document.createElement('div');
     row.className = 'tf-item';
-    row.innerHTML = `<span class="tf-dot" data-file="${f}"></span>${name}`;
-    row.title = f;
-    row.onclick = () => testRunFile(f.replace(/^\.\//, ''));
+    row.style.cssText = 'display:flex;align-items:center;gap:0.3rem;padding:0.28rem 0.5rem 0.28rem 0.8rem;';
+    const dot = document.createElement('span');
+    dot.className = 'tf-dot';
+    dot.dataset.file = f;
+    const name = document.createElement('span');
+    name.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9b9ea3;cursor:default;';
+    name.textContent = fname;
+    name.title = f;
+    const runBtn = document.createElement('span');
+    runBtn.className = 'tf-run-btn';
+    runBtn.textContent = '▶';
+    runBtn.title = `Correr ${fname}`;
+    runBtn.onclick = (e) => { e.stopPropagation(); testRunFile(f.replace(/^\.\//, '')); };
+    row.appendChild(dot);
+    row.appendChild(name);
+    row.appendChild(runBtn);
     list.appendChild(row);
   }
 }

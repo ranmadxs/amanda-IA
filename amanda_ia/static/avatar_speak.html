@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>AIA Speak</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; background:#070d14; overflow:hidden; }
+canvas { display:block; width:100%; height:100%; }
+#hud {
+  position:absolute; bottom:0; left:0; right:0;
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+  padding-bottom:10px; pointer-events:none;
+}
+#status {
+  font-family:'Share Tech Mono',monospace;
+  font-size:7px; letter-spacing:3px; color:#3ec8dc;
+  text-transform:uppercase; opacity:0;
+  transition:opacity .4s;
+  text-shadow:0 0 8px #3ec8dc;
+}
+#status.on { opacity:1; }
+#voice-bar {
+  display:flex; gap:3px; align-items:flex-end; height:14px; opacity:0;
+  transition:opacity .3s;
+}
+#voice-bar.on { opacity:1; }
+#voice-bar span {
+  width:3px; background:#3ec8dc; border-radius:1px;
+  box-shadow:0 0 4px #3ec8dc;
+  animation:none; transform-origin:bottom;
+}
+@keyframes voiceWave {
+  0%,100% { transform:scaleY(0.2); }
+  50%      { transform:scaleY(1); }
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="voice-bar">
+    <span style="height:8px"></span>
+    <span style="height:12px"></span>
+    <span style="height:6px"></span>
+    <span style="height:10px"></span>
+    <span style="height:14px"></span>
+    <span style="height:8px"></span>
+    <span style="height:11px"></span>
+  </div>
+  <div id="status">STANDBY</div>
+</div>
+
+<script>
+const cvs    = document.getElementById('c');
+const ctx    = cvs.getContext('2d');
+const statusEl  = document.getElementById('status');
+const voiceBar  = document.getElementById('voice-bar');
+const voiceSegs = Array.from(voiceBar.querySelectorAll('span'));
+
+// ── Resize ────────────────────────────────────────────────────
+function resize() {
+  cvs.width  = cvs.clientWidth  || window.innerWidth  || 320;
+  cvs.height = cvs.clientHeight || window.innerHeight || 390;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── State ─────────────────────────────────────────────────────
+let speaking  = false;
+let riseY     = 1.6;   // 0=fully visible, 1=fully hidden (below)
+let targetRise= 0;
+
+// ── Particles ─────────────────────────────────────────────────
+const parts = Array.from({length:18}, () => ({
+  ph:  Math.random() * Math.PI * 2,
+  spd: 0.15 + Math.random() * 0.22,
+  r:   55 + Math.random() * 60,
+  yOff:Math.random() * 220 - 30,
+  size:1 + Math.random() * 2.5,
+  col: Math.random() > 0.35 ? '#3ec8dc' : '#a29bfe',
+}));
+
+// ── Draw helpers ──────────────────────────────────────────────
+function setGlow(color, blur) {
+  ctx.shadowColor = color;
+  ctx.shadowBlur  = blur;
+}
+function clearGlow() { ctx.shadowBlur = 0; }
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+}
+
+// ── Robot draw ────────────────────────────────────────────────
+function drawRobot(t) {
+  const W = cvs.width, H = cvs.height;
+  const cx = W / 2;
+  // Rise offset: shifts robot off the bottom
+  const offY = H * riseY;
+  const cy   = H * 0.52 + offY + Math.sin(t * 0.65) * 4;
+  const sc   = Math.min(W, H) / 420;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(sc, sc);
+
+  const C    = '#3ec8dc';
+  const C2   = '#a29bfe';
+  const BODY = '#0d2840';
+  const BOD2 = '#091e32';
+
+  // ── HEAD (Jane Jetson style) ─────────────────────────────────
+  const hy = -168;
+
+  // ── PELO — bob con alas laterales estilo Jane Jetson ──────────
+  // Capa trasera del pelo (detrás de la cabeza)
+  ctx.beginPath();
+  ctx.moveTo(-44, hy + 28);
+  ctx.bezierCurveTo(-66, hy + 16, -68, hy - 28, -54, hy - 56);
+  ctx.bezierCurveTo(-38, hy - 80, -20, hy - 86,   0, hy - 86);
+  ctx.bezierCurveTo( 20, hy - 86,  38, hy - 80,  54, hy - 56);
+  ctx.bezierCurveTo( 68, hy - 28,  66, hy + 16,  44, hy + 28);
+  ctx.quadraticCurveTo(22, hy + 40, 0, hy + 38);
+  ctx.quadraticCurveTo(-22, hy + 40, -44, hy + 28);
+  ctx.fillStyle = '#081524';
+  ctx.fill();
+
+  // Alas/flips característicos (los detalles más icónicos de Jane)
+  // Ala izquierda
+  ctx.beginPath();
+  ctx.moveTo(-48, hy + 22);
+  ctx.bezierCurveTo(-70, hy + 12, -80, hy + 30, -72, hy + 46);
+  ctx.bezierCurveTo(-66, hy + 56, -54, hy + 48, -46, hy + 34);
+  ctx.bezierCurveTo(-44, hy + 28, -46, hy + 24, -48, hy + 22);
+  ctx.fillStyle = '#081524';
+  ctx.fill();
+  setGlow(C, 7);
+  ctx.strokeStyle = 'rgba(62,200,220,.5)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  clearGlow();
+  // Ala derecha (espejo)
+  ctx.beginPath();
+  ctx.moveTo(48, hy + 22);
+  ctx.bezierCurveTo(70, hy + 12, 80, hy + 30, 72, hy + 46);
+  ctx.bezierCurveTo(66, hy + 56, 54, hy + 48, 46, hy + 34);
+  ctx.bezierCurveTo(44, hy + 28, 46, hy + 24, 48, hy + 22);
+  ctx.fillStyle = '#081524';
+  ctx.fill();
+  setGlow(C, 7);
+  ctx.strokeStyle = 'rgba(62,200,220,.5)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  clearGlow();
+
+  // Superficie del pelo — contorno con glow
+  ctx.beginPath();
+  ctx.moveTo(-44, hy + 28);
+  ctx.bezierCurveTo(-66, hy + 16, -68, hy - 28, -54, hy - 56);
+  ctx.bezierCurveTo(-38, hy - 80, -20, hy - 86,   0, hy - 86);
+  ctx.bezierCurveTo( 20, hy - 86,  38, hy - 80,  54, hy - 56);
+  ctx.bezierCurveTo( 68, hy - 28,  66, hy + 16,  44, hy + 28);
+  ctx.quadraticCurveTo(22, hy + 40, 0, hy + 38);
+  ctx.quadraticCurveTo(-22, hy + 40, -44, hy + 28);
+  ctx.fillStyle = '#0c1e30';
+  ctx.fill();
+  setGlow(C, 8);
+  ctx.strokeStyle = 'rgba(62,200,220,.45)';
+  ctx.lineWidth = 1.3;
+  ctx.stroke();
+  clearGlow();
+
+  // ── CARA — redonda y compacta ──────────────────────────────────
+  ctx.beginPath();
+  ctx.ellipse(0, hy, 44, 54, 0, 0, Math.PI * 2);
+  ctx.fillStyle = BODY;
+  ctx.fill();
+  setGlow(C, 8);
+  ctx.strokeStyle = 'rgba(62,200,220,.5)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  clearGlow();
+
+  // ── OJOS — enormes y circulares (rasgo más icónico de Jane) ───
+  const eyeY = hy - 8;
+  [-22, 22].forEach((ex, idx) => {
+    // halo exterior
+    ctx.beginPath();
+    ctx.arc(ex, eyeY, 18, 0, Math.PI * 2);
+    setGlow(C, 22);
+    ctx.fillStyle = 'rgba(62,200,220,.08)';
+    ctx.fill();
+    clearGlow();
+    // esclerótica
+    ctx.beginPath();
+    ctx.arc(ex, eyeY, 15, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(8,26,44,.9)';
+    ctx.fill();
+    setGlow(C, 12);
+    ctx.strokeStyle = 'rgba(62,200,220,.75)';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    clearGlow();
+    // iris grande
+    ctx.beginPath();
+    ctx.arc(ex, eyeY, 10, 0, Math.PI * 2);
+    setGlow(C, 14);
+    ctx.fillStyle = '#1a7090';
+    ctx.fill();
+    clearGlow();
+    // pupila
+    ctx.beginPath();
+    ctx.arc(ex, eyeY, 5.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#6ae0f5';
+    ctx.fill();
+    // centro brillante
+    ctx.beginPath();
+    ctx.arc(ex, eyeY, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#cff8ff';
+    ctx.fill();
+    // destello
+    ctx.beginPath();
+    ctx.arc(ex + 4, eyeY - 4, 2, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,.85)';
+    ctx.fill();
+    // pestañas — 6 líneas curvadas hacia arriba
+    for (let li = 0; li < 6; li++) {
+      const angle = -Math.PI * 0.85 + li * (Math.PI * 0.7 / 5);
+      const bx = ex + Math.cos(angle) * 15;
+      const by = eyeY + Math.sin(angle) * 15;
+      const ex2 = ex + Math.cos(angle) * 22;
+      const ey2 = eyeY + Math.sin(angle) * 22 - 3;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.quadraticCurveTo(
+        ex + Math.cos(angle - 0.15) * 19,
+        eyeY + Math.sin(angle - 0.15) * 19 - 2,
+        ex2, ey2
+      );
+      setGlow(C, 5);
+      ctx.strokeStyle = 'rgba(62,200,220,.7)';
+      ctx.lineWidth = 1.3;
+      ctx.stroke();
+    }
+    clearGlow();
+    // ceja arqueada fina
+    const browX = ex;
+    const browY = eyeY - 19;
+    ctx.beginPath();
+    ctx.moveTo(browX - 14, browY + 3);
+    ctx.quadraticCurveTo(browX, browY - 4, browX + 14, browY + 3);
+    setGlow(C, 6);
+    ctx.strokeStyle = 'rgba(62,200,220,.65)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    clearGlow();
+  });
+
+  // ── NARIZ — pequeña y respingona ───────────────────────────────
+  const noseY = hy + 16;
+  ctx.beginPath();
+  ctx.moveTo(-4, noseY);
+  ctx.quadraticCurveTo(0, noseY - 5, 4, noseY);
+  ctx.strokeStyle = 'rgba(62,200,220,.3)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // ── BOCA — pequeña y expresiva estilo caricatura ───────────────
+  const mouthY = hy + 34;
+  const mOpen  = speaking ? Math.abs(Math.sin(t * 8)) * 9 : 0;
+  if (mOpen > 0.8) {
+    // boca abierta al hablar
+    ctx.beginPath();
+    ctx.moveTo(-16, mouthY);
+    ctx.quadraticCurveTo(0, mouthY - 4, 16, mouthY);
+    ctx.quadraticCurveTo(0, mouthY + mOpen * 2 + 4, -16, mouthY);
+    setGlow(C, 10);
+    ctx.fillStyle = 'rgba(62,200,220,.25)';
+    ctx.fill();
+    ctx.strokeStyle = '#3ec8dc';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    clearGlow();
+  } else {
+    // sonrisa en reposo
+    ctx.beginPath();
+    ctx.moveTo(-14, mouthY);
+    ctx.quadraticCurveTo(-8, mouthY - 5, -4, mouthY - 2);
+    ctx.quadraticCurveTo(0, mouthY - 7, 4, mouthY - 2);
+    ctx.quadraticCurveTo(8, mouthY - 5, 14, mouthY);
+    setGlow(C, 8);
+    ctx.strokeStyle = '#3ec8dc';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    clearGlow();
+    ctx.beginPath();
+    ctx.moveTo(-14, mouthY);
+    ctx.quadraticCurveTo(0, mouthY + 5, 14, mouthY);
+    ctx.strokeStyle = 'rgba(62,200,220,.4)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  }
+
+  // ── NECK — fino ───────────────────────────────────────────────
+  ctx.beginPath();
+  ctx.moveTo(-9, hy + 52);
+  ctx.bezierCurveTo(-9, hy + 62, -8, hy + 72, -8, hy + 82);
+  ctx.lineTo(8, hy + 82);
+  ctx.bezierCurveTo(8, hy + 72, 9, hy + 62, 9, hy + 52);
+  ctx.closePath();
+  ctx.fillStyle = BODY;
+  ctx.fill();
+  setGlow(C, 4);
+  ctx.strokeStyle = 'rgba(62,200,220,.3)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  clearGlow();
+
+  // collar
+  ctx.save();
+  ctx.translate(0, hy + 82);
+  ctx.scale(1, 0.25);
+  ctx.beginPath();
+  ctx.arc(0, 0, 28, 0, Math.PI * 2);
+  setGlow(C, 7);
+  ctx.strokeStyle = 'rgba(62,200,220,.5)';
+  ctx.lineWidth = 10;
+  ctx.stroke();
+  clearGlow();
+  ctx.restore();
+
+  // ── SHOULDERS ───────────────────────────────────────────────
+  const chestTop = hy + 86;
+  [-82, 82].forEach(sx => {
+    ctx.beginPath();
+    ctx.ellipse(sx, chestTop + 14, 22, 17, 0, 0, Math.PI*2);
+    ctx.fillStyle = BODY;
+    ctx.fill();
+    setGlow(C, 6);
+    ctx.strokeStyle = 'rgba(62,200,220,.35)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    clearGlow();
+  });
+
+  // ── CHEST — silueta femenina (más ancha arriba, cintura marcada) ──
+  ctx.beginPath();
+  ctx.moveTo(-72, chestTop);
+  ctx.bezierCurveTo(-72, chestTop + 40, -62, chestTop + 80, -48, chestTop + 108);
+  ctx.lineTo( 48, chestTop + 108);
+  ctx.bezierCurveTo( 62, chestTop + 80,  72, chestTop + 40,  72, chestTop);
+  ctx.closePath();
+  ctx.fillStyle = BOD2;
+  ctx.fill();
+  setGlow(C, 10);
+  ctx.strokeStyle = 'rgba(62,200,220,.5)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  clearGlow();
+
+  // accent lines
+  for (let i = 0; i < 3; i++) {
+    const ly = chestTop + 28 + i * 24;
+    ctx.beginPath();
+    ctx.moveTo(-52, ly);
+    ctx.lineTo(52, ly);
+    setGlow(C, 5);
+    ctx.strokeStyle = 'rgba(62,200,220,.28)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  clearGlow();
+
+  // core orb
+  const orbY  = chestTop + 68;
+  const pulse = 0.88 + Math.sin(t * 1.9) * 0.12;
+  const orbR  = 15 * pulse;
+  setGlow(C, 24);
+  ctx.beginPath();
+  ctx.arc(0, orbY, orbR, 0, Math.PI*2);
+  ctx.fillStyle = '#3ec8dc';
+  ctx.fill();
+  clearGlow();
+  // orb ring
+  ctx.save();
+  ctx.translate(0, orbY);
+  ctx.rotate(t * 0.8);
+  ctx.scale(1, 0.3);
+  ctx.beginPath();
+  ctx.arc(0, 0, 26, 0, Math.PI*2);
+  setGlow(C, 8);
+  ctx.strokeStyle = 'rgba(62,200,220,.65)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  clearGlow();
+  ctx.restore();
+
+  // ── ARMS ────────────────────────────────────────────────────
+  [-1, 1].forEach(side => {
+    const ax = side * 86;
+    const armSwing = Math.sin(t * 0.55) * 0.025 * side;
+    ctx.save();
+    ctx.translate(ax, chestTop + 28);
+    ctx.rotate(armSwing);
+    // upper
+    roundRect(-11, 0, 22, 72, 5);
+    ctx.fillStyle = BODY;
+    ctx.fill();
+    setGlow(C, 4);
+    ctx.strokeStyle = 'rgba(62,200,220,.28)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    clearGlow();
+    // elbow
+    ctx.beginPath();
+    ctx.arc(0, 76, 12, 0, Math.PI*2);
+    ctx.fillStyle = BODY;
+    ctx.fill();
+    setGlow(C, 5);
+    ctx.strokeStyle = 'rgba(62,200,220,.3)';
+    ctx.stroke();
+    clearGlow();
+    // lower
+    roundRect(-9, 86, 18, 62, 5);
+    ctx.fillStyle = BODY;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(62,200,220,.25)';
+    ctx.stroke();
+    // wrist ring
+    ctx.save();
+    ctx.translate(0, 152);
+    ctx.scale(1, 0.32);
+    ctx.beginPath();
+    ctx.arc(0, 0, 13, 0, Math.PI*2);
+    setGlow(C, 10);
+    ctx.strokeStyle = 'rgba(62,200,220,.65)';
+    ctx.lineWidth = 6;
+    ctx.stroke();
+    clearGlow();
+    ctx.restore();
+    ctx.restore();
+  });
+
+  // ── WAIST — curva marcada ────────────────────────────────────
+  ctx.beginPath();
+  ctx.moveTo(-48, chestTop + 106);
+  ctx.quadraticCurveTo(-38, chestTop + 120, -42, chestTop + 130);
+  ctx.lineTo( 42, chestTop + 130);
+  ctx.quadraticCurveTo(38, chestTop + 120,  48, chestTop + 106);
+  ctx.closePath();
+  ctx.fillStyle = BOD2;
+  ctx.fill();
+  setGlow(C, 5);
+  ctx.strokeStyle = 'rgba(62,200,220,.35)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  clearGlow();
+
+  // ── PARTICLES ───────────────────────────────────────────────
+  parts.forEach(p => {
+    const angle = p.ph + t * p.spd;
+    const px = Math.cos(angle) * p.r;
+    const py = p.yOff + Math.sin(t * 0.7 + p.ph) * 28;
+    const op = 0.15 + Math.abs(Math.sin(t * 0.9 + p.ph)) * 0.6;
+    ctx.globalAlpha = op;
+    setGlow(p.col, 8);
+    ctx.beginPath();
+    ctx.arc(px, py - 60, p.size, 0, Math.PI*2);
+    ctx.fillStyle = p.col;
+    ctx.fill();
+    clearGlow();
+    ctx.globalAlpha = 1;
+  });
+
+  ctx.restore();
+}
+
+// ── Animation loop ────────────────────────────────────────────
+let startTime = null;
+
+function animate(ts) {
+  if (!startTime) startTime = ts;
+  const t = (ts - startTime) / 1000;
+
+  // Smooth rise
+  riseY += (targetRise - riseY) * 0.045;
+
+  const W = cvs.width, H = cvs.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background gradient
+  const bg = ctx.createRadialGradient(W/2, H*0.4, 0, W/2, H*0.4, Math.max(W, H)*0.7);
+  bg.addColorStop(0, '#0b1828');
+  bg.addColorStop(1, '#050b12');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle grid lines
+  ctx.strokeStyle = 'rgba(62,200,220,.04)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 40) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = 0; y < H; y += 40) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Ground glow
+  const grd = ctx.createRadialGradient(W/2, H*0.78, 0, W/2, H*0.78, W*0.4);
+  grd.addColorStop(0, 'rgba(62,200,220,.08)');
+  grd.addColorStop(1, 'transparent');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, W, H);
+
+  drawRobot(t);
+
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+// ── Status/voice helpers ──────────────────────────────────────
+function setStatus(s) {
+  const labels = {
+    hidden:'STANDBY', rising:'INICIANDO', idle:'EN ESCUCHA',
+    lowering:'STANDBY', speaking:'TRANSMITIENDO',
+  };
+  statusEl.textContent = labels[s] || s.toUpperCase();
+  statusEl.classList.toggle('on', s !== 'hidden');
+}
+
+function setSpeaking(on) {
+  speaking = on;
+  voiceBar.classList.toggle('on', on);
+  if (on) {
+    voiceSegs.forEach((sp, i) => {
+      sp.style.animation = `voiceWave ${0.3+Math.random()*.35}s ${i*.06}s ease-in-out infinite`;
+    });
+    setStatus('speaking');
+  } else {
+    voiceSegs.forEach(sp => sp.style.animation = 'none');
+    setStatus(targetRise < 0.5 ? 'idle' : 'hidden');
+  }
+}
+
+// ── Message bridge ────────────────────────────────────────────
+window.addEventListener('message', ({ data }) => {
+  if (!data?.type) return;
+  switch (data.type) {
+    case 'aia_show':
+      targetRise = 0;
+      setStatus('idle');
+      break;
+    case 'aia_hide':
+      targetRise = 1.6;
+      setStatus('hidden');
+      break;
+    case 'aia_speaking_on':
+      setSpeaking(true);
+      break;
+    case 'aia_speaking_off':
+      setSpeaking(false);
+      break;
+  }
+});
+
+// Auto-rise on load
+targetRise = 0;
+setStatus('idle');
+</script>
+</body>
+</html>

@@ -281,6 +281,19 @@ def server_in_modo(server: dict, mode_key: str) -> bool:
     return mode_key in [m.strip() for m in raw.split(",")]
 
 
+def get_ports() -> dict[str, int]:
+    """Puertos de los servicios AIA. Configurables via .env:
+      AIA_WEB_PORT       (default 8080)  — web_server UI
+      AIA_AGENT_API_PORT (default 8081)  — agent_api HTTP
+      AIA_AVATAR_PORT    (default 3001)  — aia_avatar dashboard
+    """
+    return {
+        "web":        int(os.environ.get("AIA_WEB_PORT",        8080)),
+        "agent_api":  int(os.environ.get("AIA_AGENT_API_PORT",  8081)),
+        "avatar":     int(os.environ.get("AIA_AVATAR_PORT",     3001)),
+    }
+
+
 def get_config_paths() -> dict[str, str]:
     """Rutas de los archivos de config (para mostrar en UI)."""
     home = _home()

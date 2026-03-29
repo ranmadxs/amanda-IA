@@ -60,15 +60,12 @@ def get_tools(server_names: list[str] | None = None):
 
 
 def execute_tool(name: str, arguments: dict) -> str:
-    """Ejecuta una tool por nombre. MCP primero, luego builtin (si configurada)."""
+    """Ejecuta una tool por nombre. MCP primero, luego builtin (si configurada).
+    Los hooks on_call/on_result se disparan dentro de call_mcp_tool → call_tool_on_server."""
     if _mcp_has_tool(name):
-        if _on_tool_call:
-            _on_tool_call(name, arguments)
         result = call_mcp_tool(name, arguments)
         if result is None:
             result = "Error: MCP no disponible para esta tool"
-        if _on_tool_result:
-            _on_tool_result(name, result)
         return result
     fn = BUILTIN_REGISTRY.get(name)
     if not fn:

@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from amanda_ia.config import _project_root
+from amanda_ia.memory_hooks import emit as _mem_emit
 
 _MAX_PER_MODE = 30  # máximo de conversaciones guardadas por modo
 
@@ -49,6 +50,7 @@ def save(mode: str, messages: list[dict]) -> None:
         json.dumps(entry, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     _prune(d)
+    _mem_emit("HISTORY_SAVE", f"mode={mode or 'aia'} msgs={len(messages)} id={ts}")
 
 
 def _prune(d: Path) -> None:

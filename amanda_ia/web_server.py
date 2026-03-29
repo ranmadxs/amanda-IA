@@ -17,8 +17,6 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-import amanda_ia.agent as agent_mod
-from amanda_ia.agent import process, request_interrupt
 from amanda_ia.config import get_mods, get_mods_raw, server_in_modo
 import amanda_ia.history as _history_mod
 
@@ -26,11 +24,36 @@ RESOURCES = Path(__file__).resolve().parent / "resources"
 STATIC = Path(__file__).resolve().parent / "static"
 
 MONITOR_SSE_URL = "http://localhost:8003/live"
+def _agent_api_url() -> str:
+    from amanda_ia.config import get_ports
+    return f"http://127.0.0.1:{get_ports()['agent_api']}"
 
-# Procesa una petición a la vez (herramienta personal)
-_lock = threading.Lock()
-# Modo activo en la sesión web (None = modo general AiA)
+# Modo activo en la sesión web (solo para UI — estado canónico vive en agent_api)
 _web_mode: str | None = None
+
+
+def _agent_get(path: str, timeout: int = 10) -> dict:
+    """GET al agent_api."""
+    try:
+        req = urllib.request.Request(f"{_agent_api_url()}{path}")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _agent_post(path: str, body: dict, timeout: int = 10) -> dict:
+    """POST al agent_api."""
+    try:
+        payload = json.dumps(body).encode()
+        req = urllib.request.Request(
+            f"{_agent_api_url()}{path}", data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except Exception as e:
+        return {"error": str(e)}
 
 _RICH_RE = re.compile(r"\[/?(?!AIA_IMG:|AIA_FILE:)[^\]]*\]")  # excluye [AIA_IMG:...] y [AIA_FILE:...]
 _IMG_RE = re.compile(r"\[AIA_IMG:[^\]]+\]")
@@ -124,20 +147,21 @@ def _web_commands(mode_key: str | None) -> list[dict]:
 
 
 def _server_info() -> dict:
-    """Versión, modelo Ollama y directorio de trabajo."""
-    import os
-    try:
-        import tomllib
-        _toml = tomllib.loads((Path(__file__).resolve().parent.parent / "pyproject.toml").read_text())
-        version = _toml["tool"]["poetry"]["version"]
-    except Exception:
-        version = "?"
-    try:
-        from amanda_ia.agent import OLLAMA_MODEL
-        model = OLLAMA_MODEL
-    except Exception:
-        model = "?"
-    return {"version": version, "model": model, "cwd": os.getcwd()}
+    """Versión, modelo Ollama y directorio de trabajo — delegado al agent_api."""
+    info = _agent_get("/info")
+    # Fallback si agent_api no responde aún
+    if "error" in info:
+        import os
+        try:
+            import tomllib
+            _toml = tomllib.loads(
+                (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text()
+            )
+            version = _toml["tool"]["poetry"]["version"]
+        except Exception:
+            version = "?"
+        return {"version": version, "model": "?", "cwd": os.getcwd()}
+    return info
 
 
 def _help_no_mode() -> str:
@@ -303,16 +327,13 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _handle_interrupt(self, body: dict) -> None:
         reason = (body or {}).get("reason", "user")
-        request_interrupt(reason)
-        self._send_json({"ok": True})
+        self._send_json(_agent_post("/interrupt", {"reason": reason}))
 
     def _handle_mode(self, body: dict) -> None:
         global _web_mode
         key = body.get("mode", "").strip()
-        with _lock:
-            _web_mode = key if key else None
-            agent_mod._active_mode = _web_mode or ""
-            agent_mod._conversation_history.clear()
+        _web_mode = key if key else None
+        _agent_post("/mode", {"mode": _web_mode or ""})
         try:
             from amanda_ia.config import get_mcp_servers_raw
             mcp_status = {s["name"]: s.get("enabled") is not False
@@ -329,7 +350,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         text_lower = text.lower()
 
-        # Respuestas inmediatas sin SSE
+        # Respuestas inmediatas de UI — no necesitan pasar por el agente
         if text_lower == "/watch":
             self._send_json({"response": "__watch__"})
             return
@@ -340,7 +361,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json({"response": _help_no_mode()})
             return
 
-        # ── SSE streaming: logs en paralelo a la ejecución ──────────────────
+        # ── SSE al browser ──────────────────────────────────────────────────
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -348,79 +369,41 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
-        client_gone = threading.Event()
-
         def _sse(event: str, data: dict) -> None:
             try:
-                msg = f"event: {event}\ndata: {json.dumps(data)}\n\n"
-                self.wfile.write(msg.encode())
+                self.wfile.write(f"event: {event}\ndata: {json.dumps(data)}\n\n".encode())
                 self.wfile.flush()
             except OSError:
-                # Cliente desconectado — solicitar interrupción al agente
-                client_gone.set()
-                request_interrupt("client disconnected")
+                pass
 
-        # Lista que despierta al SSE thread inmediatamente cuando se añade una entrada
-        class _NotifyList(list):
-            def __init__(self):
-                super().__init__()
-                self._event = threading.Event()
-            def append(self, item):
-                super().append(item)
-                self._event.set()
-
-        log_list = _NotifyList()
-        phase: dict = {"value": "", "log": log_list}
-        result_holder: list = [None]
-        done = threading.Event()
-
-        def _run() -> None:
-            with _lock:
-                if _web_mode is not None:
-                    agent_mod._active_mode = _web_mode
-                result_holder[0] = process(text, phase=phase)
-            done.set()
-            log_list._event.set()  # despertar el SSE thread si está esperando
-
-        threading.Thread(target=_run, daemon=True).start()
-
-        cursor = 0
-        while not done.is_set() or cursor < len(log_list):
-            if client_gone.is_set():
-                break
-            while cursor < len(log_list):
-                _sse("log", {"entry": log_list[cursor]})
-                cursor += 1
-            if not done.is_set():
-                log_list._event.wait(timeout=5.0)  # espera hasta nueva entrada o timeout
-                log_list._event.clear()
-
-        if client_gone.is_set():
-            return  # cliente ya no escucha, no enviar nada más
-
-        # flush por si quedó algo (no debería con _NotifyList, pero por seguridad)
-        import logging as _logging
-        _logging.getLogger("aia").debug("SSE flush cursor=%d total_log=%d", cursor, len(log_list))
-        for entry in log_list[cursor:]:
-            _sse("log", {"entry": entry})
-
-        # Si el agente fue interrumpido, enviar mensaje de interrupción
-        result = result_holder[0] or ""
-        if result.startswith("__interrupted__:"):
-            reason = result[len("__interrupted__:"):]
-            _sse("response", {"response": f"❗ {reason}", "interrupted": True})
-            return
-
-        # Si el agente llamó start_live_monitor, activar modo watch
-        pending = agent_mod._pending_live_action
-        if pending == "start":
-            agent_mod._pending_live_action = None
-            _sse("response", {"response": "__watch__"})
-        elif pending == "stop":
-            agent_mod._pending_live_action = None
-            _sse("response", {"response": _strip(result)})
-        else:
-            _sse("response", {"response": _strip(result)})
+        # ── Proxear SSE desde agent_api ─────────────────────────────────────
+        try:
+            payload = json.dumps({"text": text, "mode": _web_mode or ""}).encode()
+            req = urllib.request.Request(
+                f"{_agent_api_url()}/chat", data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=600) as resp:
+                current_event = "message"
+                for raw in resp:
+                    line = raw.decode(errors="replace").rstrip("\r\n")
+                    if not line:
+                        current_event = "message"
+                    elif line.startswith("event:"):
+                        current_event = line[6:].strip()
+                    elif line.startswith("data:"):
+                        try:
+                            data = json.loads(line[5:].strip())
+                        except json.JSONDecodeError:
+                            continue
+                        # Aplicar _strip solo a la respuesta final (Rich markup + rutas imagen)
+                        if current_event == "response" and "response" in data:
+                            resp_text = data["response"]
+                            if resp_text not in ("__watch__", "__resume__"):
+                                data = {**data, "response": _strip(resp_text)}
+                        _sse(current_event, data)
+        except Exception as e:
+            _sse("response", {"response": f"Error al conectar con agent_api: {e}", "interrupted": True})
 
     def _handle_files(self) -> None:
         from urllib.parse import parse_qs, urlparse
@@ -508,18 +491,12 @@ class _Handler(BaseHTTPRequestHandler):
     def _handle_history_load(self, body: dict) -> None:
         global _web_mode
         mode = body.get("mode", _web_mode or "")
-        hid  = body.get("id", "")
-        messages = _history_mod.load(mode, hid)
-        if messages is None:
-            self._send_json({"error": "not found"}, 404)
+        result = _agent_post("/history/load", {"mode": mode, "id": body.get("id", "")})
+        if "error" in result:
+            self._send_json(result, 404)
             return
-        with _lock:
-            agent_mod._active_mode = mode
-            agent_mod._conversation_history = messages
-        self._send_json({"ok": True, "messages": [
-            {"role": m["role"], "content": m["content"]}
-            for m in messages if m.get("role") in ("user", "assistant") and m.get("content")
-        ]})
+        _web_mode = mode
+        self._send_json(result)
 
     def _handle_image(self) -> None:
         from urllib.parse import parse_qs, urlparse
@@ -750,7 +727,7 @@ class _Server(socketserver.ThreadingMixIn, HTTPServer):
         super().handle_error(request, client_address)
 
 
-def run_web(host: str = "0.0.0.0", port: int = 8080) -> None:
+def run_web(host: str = "0.0.0.0", port: int = 8080, avatar_port: int | None = None) -> None:
     import os
     import signal
     import threading
@@ -779,21 +756,14 @@ def run_web(host: str = "0.0.0.0", port: int = 8080) -> None:
     except Exception:
         _version = "?"
 
-    print(f"amanda-IA v{_version}  →  http://localhost:{port}")
+    from amanda_ia.config import get_ports
+    _ports = get_ports()
+    print(f"amanda-IA v{_version}")
+    print(f"  puerto {port:<5} → web_server  http://localhost:{port}")
+    print(f"  puerto {_ports['agent_api']:<5} → agent_api   http://127.0.0.1:{_ports['agent_api']}")
+    if avatar_port:
+        print(f"  puerto {avatar_port:<5} → aia_avatar  http://localhost:{avatar_port}")
     print("Ctrl+C para detener")
-
-    # DEBUG: verificar estado del terminal
-    try:
-        import termios, sys
-        if sys.stdin.isatty():
-            attrs = termios.tcgetattr(sys.stdin.fileno())
-            lflag = attrs[3]
-            isig_on = bool(lflag & termios.ISIG)
-            print(f"[debug] ISIG={'ON' if isig_on else 'OFF (Ctrl+C no manda SIGINT!)'}", flush=True)
-        else:
-            print("[debug] stdin no es tty", flush=True)
-    except Exception as e:
-        print(f"[debug] no pude leer terminal: {e}", flush=True)
 
     # Bloquea hasta que _stop escriba en el pipe (SIGINT o SIGTERM)
     try:

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from amanda_ia.config import _project_root, _load_json
+from amanda_ia.memory_hooks import emit as _mem_emit
 
 
 def _cache_path() -> Path:
@@ -63,6 +64,7 @@ def get(prompt: str) -> list[str] | None:
     if key in _memory_cache:
         selected, ts = _memory_cache[key]
         if now - ts < ttl_sec:
+            _mem_emit("CACHE_HIT", f"classifier: {','.join(selected) or '[]'} (mem)")
             return selected
         del _memory_cache[key]
 
@@ -74,6 +76,7 @@ def get(prompt: str) -> list[str] | None:
         if now - ts < ttl_sec:
             selected = entry.get("selected", [])
             _memory_cache[key] = (selected, ts)
+            _mem_emit("CACHE_HIT", f"classifier: {','.join(selected) or '[]'} (disk)")
             return selected
 
     return None
@@ -88,6 +91,7 @@ def set_(prompt: str, selected: list[str]) -> None:
     disk = _load_disk_cache()
     disk[key] = {"selected": selected, "timestamp": now}
     _save_disk_cache(disk)
+    _mem_emit("CACHE_WRITE", f"classifier: {','.join(selected) or '[]'}")
 
 
 def delete_all() -> None:

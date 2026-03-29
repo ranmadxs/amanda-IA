@@ -82,18 +82,24 @@ from amanda_ia.tools.registry import set_tool_hooks
 from amanda_ia.config import get_mcp_display_names, get_mcp_servers, get_mcp_servers_raw, set_mcp_server_enabled
 from amanda_ia.config import get_mods_raw, get_mods, set_mod_enabled
 from amanda_ia.config import _project_root, server_in_modo
-from amanda_ia.mcp_client import get_mcp_server_info, invalidate_mcp_cache, get_server_name_for_tool, get_server_transport, get_mode_help
+from amanda_ia.mcp_client import get_mcp_server_info, invalidate_mcp_cache, get_server_name_for_tool, get_server_transport, get_mode_help, list_tools_for_server, call_tool_on_server
 from amanda_ia.classifier import classify_prompt, CLASSIFIER_MODEL
 from amanda_ia.classifier_cache import get as cache_get, set_ as cache_set, delete_all as cache_delete_all
 from amanda_ia.plan_cache import get as plan_cache_get, set_ as plan_cache_set, delete_all as plan_cache_delete_all
 from amanda_ia import live_monitor
 from amanda_ia.feedback import save_feedback
+from amanda_ia.memory_hooks import set_hook as _set_memory_hook
+from amanda_ia.agilidad_hooks import install as _agil_install, uninstall as _agil_uninstall, emit as _agil_emit
 import amanda_ia.history as _history_mod
 
 console = Console()
 
 
 OLLAMA_MODEL = os.environ.get("AIA_OLLAMA_MODEL", "llama3.1:8b")
+# num_ctx: M1 Pro 16GB + 14.8B Q4_K_M (~9.5GB modelo) → ~4GB libres para KV cache.
+# KV cache ≈ 128KB/tok (GQA 14B) → 16384 tok = ~2GB, deja 2GB de margen.
+# Configurable con AIA_OLLAMA_NUM_CTX si se cambia el modelo.
+_OLLAMA_OPTIONS: dict = {"num_ctx": int(os.environ.get("AIA_OLLAMA_NUM_CTX", "16384"))}
 
 # Caché de rama git: (ruta, tiempo_última_consulta, branch)
 _git_branch_cache: tuple[str, float, str] | None = None
@@ -298,6 +304,7 @@ def _translate_to_english(text: str) -> str:
                     "content": f"Traduce SOLO al inglés, sin explicaciones. Responde únicamente con la traducción:\n{text.strip()}",
                 }
             ],
+            options=_OLLAMA_OPTIONS,
         )
         out = (getattr(r.message, "content", None) or "").strip()
         return out if out else text
@@ -626,6 +633,7 @@ def _compress_history(history: list[dict], phase: dict[str, str] | None) -> list
     y retorna un historial comprimido. Muestra 'Resumiendo Conversación' en el spinner
     con un mínimo de 1 segundo en pantalla.
     """
+    _agil_emit("COMPRESS", f"history turns={_count_turns(history)}")
     # Agrupar mensajes en turnos (cada turno empieza con role=user)
     turns: list[list[dict]] = []
     current: list[dict] = []
@@ -675,6 +683,7 @@ def _compress_history(history: list[dict], phase: dict[str, str] | None) -> list
                     ),
                 }
             ],
+            options=_OLLAMA_OPTIONS,
         )
         summary = (getattr(r.message, "content", None) or "").strip() or "Conversación previa resumida."
     except Exception:
@@ -699,41 +708,211 @@ def _fmt_tool_call(server_name: str | None, tool_name: str, args: dict) -> str:
     return f"{proto}>>mcp.{srv}.{tool_name}({params})"
 
 
+def _think(phase: dict, entry: str) -> None:
+    """Append al canal think_log (pensamiento) en vez de log (pasos)."""
+    phase.setdefault("think_log", []).append(entry)
+
+
 def _plan_execution(message: str, mcp_tools: list, phase: dict) -> None:
-    """LLM genera el plan de ejecución como texto puro. Sin tools schemas → sin MCP calls."""
-    tool_names = ", ".join(
-        t.get("function", {}).get("name")
-        for t in mcp_tools if t.get("function", {}).get("name")
-    )
-    system = (
-        "Eres un planificador. Dado un prompt y una lista de tools disponibles, "
-        "describe en UNA SOLA LÍNEA los pasos intermedios de ejecución.\n"
-        "Formato: solo los pasos separados por ->. Pasos posibles: LLM, MCP(nombre_operacion).\n"
-        "NO incluyas PROMPT ni RESPUESTA, solo los pasos del medio.\n"
-        "Ejemplos:\n"
-        "- 'hola' → LLM\n"
-        "- 'lista archivos' → MCP(list_directory) -> LLM\n"
-        "- 'modifica changelog con tags' → MCP(run_command) -> LLM -> MCP(run_command) -> LLM -> MCP(write_file)\n"
-        "Responde ÚNICAMENTE la línea, sin texto adicional."
-    )
-    user = f"Tools disponibles: {tool_names}\nPrompt: {message}"
+    """Planifica usando MCP sequential-thinking (global, todos los modos).
+    El LLM genera los pasos en texto; nosotros llamamos sequentialthinking con cada uno.
+    """
+    _agil_emit("PLAN_EXEC", f"tools={len(mcp_tools)} msg={message[:60]!r}")
+    # Construir descripción rica de cada tool (nombre + descripción + parámetros)
+    tool_lines = []
+    for t in mcp_tools:
+        fn = t.get("function", {})
+        name = fn.get("name", "")
+        desc = fn.get("description", "")
+        if not name:
+            continue
+        params = fn.get("parameters", {}).get("properties", {})
+        required = fn.get("parameters", {}).get("required", [])
+        if params:
+            param_parts = []
+            for p, meta in params.items():
+                p_type = meta.get("type", "")
+                p_desc = meta.get("description", "")
+                req = "" if p in required else "?"
+                param_parts.append(f"{p}{req}: {p_type}" + (f" ({p_desc})" if p_desc else ""))
+            tool_lines.append(f"- {name}({', '.join(param_parts)}): {desc}")
+        else:
+            tool_lines.append(f"- {name}(): {desc}" if desc else f"- {name}()")
+    tools_context = "\n".join(tool_lines) if tool_lines else "ninguna"
+
     try:
-        cached_plan = plan_cache_get(message)
-        if cached_plan is not None:
-            phase.setdefault("log", []).append(f"PLAN>> {cached_plan}")  # noqa: B905
+        phase["value"] = "Planificando"
+
+        # Buscar sequential-thinking en todos los servidores (global, independiente del modo)
+        all_servers = get_mcp_servers()
+        st_server = next(
+            (s for s in all_servers if s.get("name") == "sequential-thinking" and s.get("enabled", True)),
+            None,
+        )
+
+        if not st_server:
+            _plan_execution_llm(message, tools_context, phase)
             return
-        phase["value"] = "Planificando"  # noqa: B905
-        phase.setdefault("log", []).append(f"Planificación ?> LLM>>Ollama.{OLLAMA_MODEL} (plan)")  # noqa: B905
-        response = ollama_chat(model=OLLAMA_MODEL, messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
+
+        # Paso 1: LLM genera los pasos concretos con calls MCP y parámetros inferidos
+        steps_response = ollama_chat(model=OLLAMA_MODEL, options=_OLLAMA_OPTIONS, messages=[
+            {"role": "system", "content": (
+                "Eres un planificador de tareas de IA. Dado el prompt y las tools disponibles, "
+                "lista los pasos de ejecución. Un paso por línea, sin numeración.\n"
+                "Cuando uses una tool, escríbela con los parámetros inferidos del prompt: "
+                "mcp.<server>.<tool>(param=valor, ...). Si no sabés el valor exacto, usá un placeholder.\n"
+                "El ÚLTIMO paso siempre debe ser 'LLM sintetiza los resultados y responde al usuario'.\n"
+                "Ejemplo para 'temperatura de Santiago':\n"
+                "mcp.temperatura.search_location(query='Santiago')\n"
+                "mcp.temperatura.get_current_conditions(latitude=..., longitude=...)\n"
+                "LLM sintetiza los resultados y responde al usuario\n"
+                "Solo los pasos, sin texto adicional."
+            )},
+            {"role": "user", "content": f"Tools disponibles:\n{tools_context}\n\nPrompt del usuario: {message}"},
         ])
-        plan = (getattr(response.message, "content", None) or "").strip().split("\n")[0].strip()
-        for noise in ("PROMPT ->", "PROMPT->", "-> RESPUESTA", "->RESPUESTA", "CLASIFICAR ->", "CLASIFICAR->"):
+        raw_steps = (getattr(steps_response.message, "content", None) or "").strip()
+        steps = [s.strip().lstrip("-•*0123456789.) ") for s in raw_steps.split("\n") if s.strip()][:5]
+
+        if not steps:
+            _plan_execution_llm(message, tools_context, phase)
+            return
+
+        # Buscar memory MCP para guardar resultados
+        mem_server = next(
+            (s for s in all_servers if s.get("name") == "memory" and s.get("enabled", True)),
+            None,
+        )
+        server_by_name = {s["name"]: s for s in all_servers if s.get("name")}
+
+        # Paso 2: registrar pensamientos en sequential-thinking + lanzar MCPs en paralelo
+        import concurrent.futures as _futures
+        import ast as _ast
+
+        def _parse_args(raw: str) -> dict:
+            args: dict = {}
+            for kv in re.finditer(r'(\w+)\s*=\s*([^,)]+)', raw):
+                k, v = kv.group(1), kv.group(2).strip()
+                try:
+                    args[k] = _ast.literal_eval(v)
+                except Exception:
+                    args[k] = v.strip("'\"")
+            return args
+
+        def _parse_mcp_call(text: str):
+            """Parsea call MCP en cualquiera de estos formatos:
+            - mcp.server.tool(k=v, ...)  → usa server del texto
+            - tool_name(k=v, ...)        → busca server en registry
+            Retorna (server, tool, args) o None.
+            """
+            # Formato explícito: mcp.server.tool(...)
+            m = re.search(r'mcp\.(\w+)\.(\w+)\(([^)]*)\)', text)
+            if m:
+                srv, tool, raw = m.group(1), m.group(2), m.group(3)
+                return get_server_name_for_tool(tool) or srv, tool, _parse_args(raw)
+            # Formato corto: tool_name(k=v, ...) — buscar servidor en registry
+            m = re.search(r'\b([a-z]\w*)\(([^)]*)\)', text)
+            if m:
+                tool, raw = m.group(1), m.group(2)
+                srv = get_server_name_for_tool(tool)
+                if srv:
+                    return srv, tool, _parse_args(raw)
+            return None
+
+        thoughts: list[str] = []
+        total = len(steps)
+        mcp_futures: dict = {}  # future → (srv_name, tool_name)
+
+        with _futures.ThreadPoolExecutor(max_workers=8) as executor:
+            for i, step in enumerate(steps):
+                # Registrar en sequential-thinking
+                call_tool_on_server(st_server, "sequentialthinking", {
+                    "thought": step,
+                    "thoughtNumber": i + 1,
+                    "totalThoughts": total,
+                    "nextThoughtNeeded": i < total - 1,
+                })
+                thoughts.append(step)
+                # Reemplazar paso final genérico del LLM con formato estándar
+                if re.search(r'LLM\s+sintetiza|responde al usuario', step, re.IGNORECASE):
+                    display = f"Generando Respuesta ?> LLM>>Ollama.{OLLAMA_MODEL}"
+                else:
+                    display = step[:200] + ("…" if len(step) > 200 else "")
+                _think(phase, f"PENSAMIENTO {i + 1}>> {display}")
+
+                # Si el paso contiene un call MCP concreto, ejecutarlo en paralelo
+                parsed = _parse_mcp_call(step)
+                if parsed:
+                    srv_name, tool_name, tool_args = parsed
+                    # El LLM puede inventar nombres de servidor: resolver por nombre de tool real
+                    real_srv_name = get_server_name_for_tool(tool_name) or srv_name
+                    srv = server_by_name.get(real_srv_name) or server_by_name.get(srv_name)
+                    if srv:
+                        phase.setdefault("mcp_log", []).append(_fmt_tool_call(real_srv_name, tool_name, tool_args))
+                        fut = executor.submit(call_tool_on_server, srv, tool_name, tool_args)
+                        mcp_futures[fut] = (real_srv_name, tool_name)
+
+            # Paso 3: recopilar resultados y guardar en memory
+            mcp_results: list[tuple[str, str]] = []  # [(label, result)]
+            for fut in _futures.as_completed(mcp_futures):
+                srv_name, tool_name = mcp_futures[fut]
+                try:
+                    result = fut.result() or ""
+                except Exception as e:
+                    result = f"Error: {e}"
+                label = f"{srv_name}.{tool_name}"
+                mcp_results.append((label, result))
+                phase.setdefault("mcp_log", []).append(f"RESULT>> {result[:400]}{'…' if len(result) > 400 else ''}")
+                # Guardar en memory MCP
+                if mem_server:
+                    try:
+                        call_tool_on_server(mem_server, "create_entities", {"entities": [
+                            {"name": label, "entityType": "plan_result", "observations": [result[:800]]}
+                        ]})
+                        phase.setdefault("memory_log", []).append(f"MCP_MEM_WRITE>> create_entity: {label}")
+                    except Exception:
+                        pass
+
+        # Paso 4: los resultados MCP se guardan en memory; "Pensamiento Respuesta" la emite agent_api con la respuesta real del LLM
+        # (no sintetizamos aquí para evitar duplicar respuestas y perder imágenes/gráficos)
+
+        # Paso 5: Sintetizar en formato PLAN>> para el mermaid (va al canal log normal)
+        synth = ollama_chat(model=OLLAMA_MODEL, options=_OLLAMA_OPTIONS, messages=[
+            {"role": "system", "content": (
+                "Sintetiza en UNA SOLA LÍNEA los pasos de ejecución.\n"
+                "Formato: pasos separados por ->. Posibles: LLM, MCP(nombre_operacion).\n"
+                "Solo la línea, sin texto adicional."
+            )},
+            {"role": "user", "content": "\n".join(f"{i+1}. {t}" for i, t in enumerate(thoughts))},
+        ])
+        plan = (getattr(synth.message, "content", None) or "").strip().split("\n")[0].strip()
+        for noise in ("PLAN>>", "PROMPT ->", "PROMPT->", "-> RESPUESTA", "->RESPUESTA"):
             plan = plan.replace(noise, "").strip().strip("->").strip()
         if plan:
-            plan_cache_set(message, plan)
-            phase.setdefault("log", []).append(f"PLAN>> {plan}")  # noqa: B905
+            phase.setdefault("log", []).append(f"PLAN>> {plan}")
+
+    except Exception as e:
+        logger.debug("_plan_execution error: %s", e)
+
+
+def _plan_execution_llm(message: str, tools_context: str, phase: dict) -> None:
+    """Fallback: LLM genera plan en una línea (sin sequential-thinking)."""
+    _agil_emit("PLAN_EXEC_LLM", f"msg={message[:60]!r}")
+    try:
+        phase.setdefault("log", []).append(f"Planificación ?> LLM>>Ollama.{OLLAMA_MODEL} (plan)")
+        response = ollama_chat(model=OLLAMA_MODEL, options=_OLLAMA_OPTIONS, messages=[
+            {"role": "system", "content": (
+                "Eres un planificador. Dado un prompt y tools disponibles, "
+                "describe en UNA SOLA LÍNEA los pasos intermedios.\n"
+                "Formato: pasos separados por ->. Posibles: LLM, MCP(nombre_operacion).\n"
+                "Solo la línea, sin texto adicional."
+            )},
+            {"role": "user", "content": f"Tools disponibles:\n{tools_context}\n\nPrompt: {message}"},
+        ])
+        plan = (getattr(response.message, "content", None) or "").strip().split("\n")[0].strip()
+        for noise in ("PROMPT ->", "PROMPT->", "-> RESPUESTA", "->RESPUESTA"):
+            plan = plan.replace(noise, "").strip().strip("->").strip()
+        if plan:
+            phase.setdefault("log", []).append(f"PLAN>> {plan}")
     except Exception:
         pass
 
@@ -930,6 +1109,7 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
             if phase is not None:
                 phase["value"] = "Clasificando"  # noqa: B905
                 phase.setdefault("log", []).append(f"Clasificación ?> LLM>>Ollama.{CLASSIFIER_MODEL}")  # noqa: B905
+            _agil_emit("CLASSIFY_LLM", f"servers={len(pool)}")
             selected = classify_prompt(message, pool)
             cache_set(cache_key, selected)
 
@@ -940,15 +1120,23 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
     # selected=None: builtin + todos los MCP. selected=[]: solo builtin.
     # selected=[...]: builtin + esos MCP. Siempre pasamos tools para que get_time funcione.
     tools = get_tools(selected)
+    _agil_emit("TOOLS_LOAD", f"selected={selected} n={len(tools)}")
 
     # Detectar si MCP no se cargaron (conexión fallida)
     mcp_tools = [t for t in tools if isinstance(t, dict) and t.get("type") == "function"]
     mcp_load_failed = selected and len(selected) > 0 and len(mcp_tools) == 0
     logger.debug("process selected=%s mcp_tools=%s mcp_load_failed=%s", selected, [t.get("function",{}).get("name") for t in mcp_tools], mcp_load_failed)
 
-    # Etapa de planificación: el LLM genera el flujo esperado (solo log, no afecta ejecución)
+    # Planificación en paralelo: corre en thread separado para no bloquear la respuesta principal
     if phase is not None:
-        _plan_execution(message, mcp_tools, phase)
+        _mcp_tools_snapshot = list(mcp_tools)
+        _plan_thread = _threading.Thread(
+            target=_plan_execution,
+            args=(message, _mcp_tools_snapshot, phase),
+            daemon=True,
+        )
+        _plan_thread.start()
+        phase["_plan_thread"] = _plan_thread  # para que agent_api espere antes de cerrar SSE
 
     # Comprimir historial si supera el límite de turnos
     if _count_turns(_conversation_history) >= _MAX_TURNS:
@@ -967,14 +1155,18 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
         srv = get_server_name_for_tool(name)
         if phase is not None:
             phase["value"] = f"mcp_exe@{srv}" if srv else "mcp_exe"
-            phase.setdefault("log", []).append(_fmt_tool_call(srv, name, args))
+            phase.setdefault("mcp_log", []).append(_fmt_tool_call(srv, name, args))
 
     def _hook_on_result(name: str, result: str) -> None:
         if phase is not None:
             _r = result or ""
-            phase.setdefault("log", []).append(f"RESULT>> {_r[:400]}{'…' if len(_r) > 400 else ''}")
+            phase.setdefault("mcp_log", []).append(f"RESULT>> {_r[:400]}{'…' if len(_r) > 400 else ''}")
 
     set_tool_hooks(_hook_on_call, _hook_on_result)
+    _set_memory_hook(lambda op, d: phase.setdefault("memory_log", []).append(f"{op}>> {d}") if phase is not None else None)
+    if phase is not None:
+        _agil_install(phase)
+        _agil_emit("PROCESS_START", f"msg={message[:80]!r} mode={_active_mode or 'general'}")
 
     try:
         last_tool_result = None
@@ -1023,14 +1215,38 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                 return f"__interrupted__:{reason}"
 
             # LLM con tools en cada ronda — permite múltiples llamadas secuenciales
+            _agil_emit("LLM_ROUND", f"round={_round} tools={len(tools)} history={len(messages)}")
             if phase is not None:
                 phase["value"] = "Generando Respuesta"  # noqa: B905
                 phase.setdefault("log", []).append(f"Generando Respuesta ?> LLM>>Ollama.{OLLAMA_MODEL}")  # noqa: B905
-            response = ollama_chat(model=OLLAMA_MODEL, messages=messages, tools=tools)
+            response = ollama_chat(model=OLLAMA_MODEL, messages=messages, tools=tools, options=_OLLAMA_OPTIONS)
             msg = response.message
+
+            # Emitir métricas de Ollama al canal agilidad
+            if phase is not None:
+                try:
+                    _ec = getattr(response, "eval_count", 0) or 0
+                    _ed = getattr(response, "eval_duration", 0) or 0
+                    _pc = getattr(response, "prompt_eval_count", 0) or 0
+                    _pd = getattr(response, "prompt_eval_duration", 0) or 0
+                    _ld = getattr(response, "load_duration", 0) or 0
+                    _td = getattr(response, "total_duration", 0) or 0
+                    _gen_tps  = round(_ec / (_ed / 1e9), 1) if _ed > 0 else 0
+                    _pre_tps  = round(_pc / (_pd / 1e9), 1) if _pd > 0 else 0
+                    _load_ms  = round(_ld / 1e6)
+                    _total_ms = round(_td / 1e6)
+                    _stats_line = (
+                        f"gen={_gen_tps}tok/s | prefill={_pre_tps}tok/s | "
+                        f"load={_load_ms}ms | total={_total_ms}ms | "
+                        f"out={_ec}tok | ctx={_pc}tok"
+                    )
+                    phase.setdefault("agilidad", []).append(f"OLLAMA_STATS>> {_stats_line}")  # noqa: B905
+                except Exception:
+                    pass
 
             if hasattr(msg, "tool_calls") and msg.tool_calls:
                 # Ejecutar todas las tool_calls de esta ronda
+                _agil_emit("TOOL_CALLS", f"round={_round} count={len(msg.tool_calls)} names={[tc.function.name for tc in msg.tool_calls]}")
                 logger.debug("tool_calls round=%d count=%d names=%s", _round, len(msg.tool_calls), [tc.function.name for tc in msg.tool_calls])
                 messages.append(_msg_to_dict(msg))
                 for tc in msg.tool_calls:
@@ -1103,6 +1319,8 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                 ]
                 _conversation_history = clean + [{"role": "assistant", "content": content}]
                 _history_mod.save(_active_mode, _conversation_history)
+                _agil_emit("PROCESS_END", f"rounds={_round} result_len={len(content)}")
+                _agil_uninstall()
                 return content
             break
 
@@ -1116,6 +1334,8 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
             ]
             _conversation_history = clean + [{"role": "assistant", "content": last_tool_result}]
             _history_mod.save(_active_mode, _conversation_history)
+            _agil_emit("PROCESS_END", f"rounds={_round} result_len={len(last_tool_result)}")
+            _agil_uninstall()
             return last_tool_result
         return "[dim]Sin respuesta.[/]"
 

@@ -204,23 +204,13 @@ def get_mcp_tool_schemas(server_names: list[str] | None = None) -> list[dict[str
 
 def call_mcp_tool(name: str, arguments: dict[str, Any]) -> str | None:
     """
-    Ejecuta una tool vía MCP. Enruta al servidor que tiene la tool (HTTP o stdio).
-    Retorna el resultado o None si MCP no está configurado/falla.
+    Ejecuta una tool vía MCP. Enruta al servidor que tiene la tool.
+    Retorna el resultado o None si la tool no está registrada en ningún servidor.
     """
-    tool_map = _get_tool_to_server_map()
-    server = tool_map.get(name)
+    server = _get_tool_to_server_map().get(name)
     if not server:
         return None
-    try:
-        if server.get("url"):
-            return anyio.run(_call_tool_http, server["url"], name, arguments)
-        return anyio.run(_call_tool_stdio, server, name, arguments)
-    except BaseException as e:
-        msg = _format_mcp_error(e)
-        hint = ""
-        if "connect" in msg.lower() or "refused" in msg.lower() or "attempts failed" in msg.lower():
-            hint = " ¿Está el servidor MCP corriendo? (ej: poetry run mcp wahapedia --http)"
-        return f"Error MCP: {msg}{hint}"
+    return call_tool_on_server(server, name, arguments)
 
 
 def get_mcp_server_info() -> str | None:
@@ -282,14 +272,33 @@ def list_tools_for_server(server: dict[str, Any]) -> list[dict[str, Any]]:
 
 def call_tool_on_server(server: dict[str, Any], tool_name: str, arguments: dict[str, Any]) -> str:
     """Llama a una tool en un servidor específico sin usar cache."""
+    if not server.get("url") and not server.get("command"):
+        return "Error: servidor sin comando ni URL"
+    # Disparar hooks (import lazy para evitar circular con registry.py)
+    try:
+        import amanda_ia.tools.registry as _reg
+        _on_call = _reg._on_tool_call
+        _on_result = _reg._on_tool_result
+    except Exception:
+        _on_call = _on_result = None
+    if _on_call:
+        try: _on_call(tool_name, arguments)
+        except Exception: pass
     try:
         if server.get("url"):
-            return anyio.run(_call_tool_http, server["url"], tool_name, arguments)
-        elif server.get("command"):
-            return anyio.run(_call_tool_stdio, server, tool_name, arguments)
-        return "Error: servidor sin comando ni URL"
+            result = anyio.run(_call_tool_http, server["url"], tool_name, arguments)
+        else:
+            result = anyio.run(_call_tool_stdio, server, tool_name, arguments)
     except BaseException as e:
-        return f"Error MCP: {_format_mcp_error(e)}"
+        msg = _format_mcp_error(e)
+        hint = ""
+        if "connect" in msg.lower() or "refused" in msg.lower() or "attempts failed" in msg.lower():
+            hint = f" ¿Está el servidor MCP corriendo? ({server.get('name', '?')})"
+        result = f"Error MCP: {msg}{hint}"
+    if _on_result:
+        try: _on_result(tool_name, result)
+        except Exception: pass
+    return result
 
 
 async def _list_tools_described(server: dict[str, Any]) -> list[tuple[str, str]]:

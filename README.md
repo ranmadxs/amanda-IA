@@ -31,6 +31,82 @@ poetry run aia --modo warhammer -m "dame las estratagemas de los ultramarines"
 poetry run aia --modo warhammer
 ```
 
+## Modo web
+
+Levanta la UI web en el puerto 8080:
+
+```bash
+poetry run aia --web
+poetry run aia --web --port 3000
+poetry run aia --web --modo warhammer
+```
+
+Solo el agent API, sin UI web:
+
+```bash
+poetry run aia --agent-api
+poetry run aia --agent-api --api-port 9000
+poetry run aia --agent-api --modo warhammer
+```
+
+Al arrancar con `--web` se levantan dos servidores internos en el mismo proceso:
+
+```
+puerto 8080 → web_server   (UI, archivos, mongo, shell)
+puerto 8081 → agent_api    (Ollama, MCP, historial, tools)
+```
+
+### Agent API (puerto 8081)
+
+El agente queda expuesto como servicio HTTP independiente de la UI. Podés interactuar directamente con él:
+
+```bash
+# Estado
+curl http://localhost:8081/health
+curl http://localhost:8081/info
+
+# Enviar mensaje (SSE — muestra logs + respuesta)
+curl -s -N -X POST http://localhost:8081/chat \
+  -H "Content-Type: application/json" \
+  -d '{"text": "hola, ¿cómo estás?"}'
+
+# Cambiar modo
+curl -X POST http://localhost:8081/mode \
+  -H "Content-Type: application/json" \
+  -d '{"mode": "modo_warhammer"}'
+
+# Interrumpir una respuesta en curso
+curl -X POST http://localhost:8081/interrupt \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "manual"}'
+
+# Historial disponible
+curl "http://localhost:8081/history?mode="
+```
+
+**Endpoints completos:**
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `GET` | `/health` | Estado del servicio |
+| `GET` | `/info` | Versión, modelo Ollama, cwd, modo activo |
+| `GET` | `/history?mode=` | Lista de conversaciones guardadas |
+| `POST` | `/chat` | Envía mensaje — responde SSE con eventos `log` y `response` |
+| `POST` | `/mode` | Cambia modo activo y limpia historial de conversación |
+| `POST` | `/interrupt` | Interrumpe la generación en curso |
+| `POST` | `/history/load` | Carga una conversación anterior en el agente |
+| `POST` | `/history/flush` | Borra el historial del modo indicado |
+
+**Formato SSE de `/chat`:**
+
+```
+event: log
+data: {"entry": "🔧 Llamando herramienta get_time..."}
+
+event: response
+data: {"response": "Son las 14:32.", "interrupted": false}
+```
+
 ## Tests
 
 ```bash

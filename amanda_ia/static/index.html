@@ -247,6 +247,11 @@ body {
 }
 
 /* ── Log panel ──────────────────────────────────────────── */
+.think-panel {
+  border-color: #fd79a833 !important;
+  background: #1a0d1500;
+}
+.think-panel > summary { color: #fd79a8; }
 .log-panel {
   margin-top: 0.5rem;
   border: 1px solid var(--border);
@@ -287,11 +292,23 @@ details[open] .log-toggle { transform: rotate(90deg); }
   white-space: pre-wrap;
   word-break: break-all;
 }
-.log-entry.log-plan   { color: #a29bfe; background: #1a1530; }
-.log-entry.log-llm    { color: #74b9ff; background: #0d1a2a; }
-.log-entry.log-mcp    { color: #55efc4; background: #0a1f18; }
-.log-entry.log-result { color: #ffeaa7; background: #1a1500; font-size: 0.78rem; opacity: 0.85; }
-.log-entry.log-other  { color: var(--text-dim); }
+.log-entry.log-plan    { color: #a29bfe; background: #1a1530; }
+.log-entry.log-llm     { color: #74b9ff; background: #0d1a2a; }
+.log-entry.log-mcp     { color: #55efc4; background: #0a1f18; }
+.log-entry.log-result  { color: #ffeaa7; background: #1a1500; font-size: 0.78rem; opacity: 0.85; }
+.log-entry.log-other   { color: var(--text-dim); }
+.log-entry.log-think-answer { color: #00cec9; background: #001f1e; white-space: pre-wrap;
+                               word-break: break-word; border-left: 3px solid #00cec9; }
+.log-thought-list      { margin-top: 4px; display: flex; flex-direction: column; gap: 2px; }
+.log-thought-sub       { font-size: 0.72rem; color: #fd79a8; font-style: italic;
+                          padding: 2px 8px; border-left: 2px solid #fd79a855;
+                          white-space: pre-wrap; word-break: break-word; }
+.log-think-badge       { display: inline-flex; align-items: center; gap: 4px;
+                          font-size: 0.7rem; margin-left: 8px; vertical-align: middle; }
+.log-think-count       { opacity: 0.85; }
+.log-think-spinner     { display: inline-block; animation: spin 0.9s linear infinite; font-style: normal; }
+.log-think-done        { font-style: normal; font-size: 0.85rem; }
+@keyframes spin        { to { transform: rotate(360deg); } }
 .log-mermaid {
   background: #0a0a14;
   padding: 0.4rem;
@@ -1555,6 +1572,104 @@ body.ide-mode.settings-active #ide-terminal    { display: none !important; }
   margin-top: 0.3rem;
   white-space: pre-wrap;
 }
+
+/* ── AIA Image Widget ───────────────────────────────────── */
+#aia-img-widget {
+  position: fixed;
+  bottom: 80px;
+  right: 18px;
+  width: 340px;
+  max-height: 60vh;
+  background: #1a1a2e;
+  border: 1px solid #444;
+  border-radius: 10px;
+  box-shadow: 0 8px 32px #0008;
+  display: none;
+  flex-direction: column;
+  z-index: 900;
+  overflow: hidden;
+}
+body.ide-mode #aia-img-widget { display: none !important; }
+#aia-img-widget.visible { display: flex; }
+#aia-img-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #252540;
+  border-bottom: 1px solid #333;
+  font-size: 0.75rem;
+  color: #aaa;
+  user-select: none;
+}
+#aia-img-widget-clear {
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: #666;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+#aia-img-widget-clear:hover { color: #ccc; background: #333; }
+#aia-img-widget-body {
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#aia-img-widget-body img {
+  width: 100%;
+  border-radius: 6px;
+  display: block;
+  cursor: zoom-in;
+}
+
+/* ── AIA Mermaid Widget ─────────────────────────────────── */
+#aia-mmd-widget {
+  position: fixed;
+  bottom: 80px;
+  right: 368px;
+  width: 360px;
+  max-height: 60vh;
+  background: #1a1a2e;
+  border: 1px solid #444;
+  border-radius: 10px;
+  box-shadow: 0 8px 32px #0008;
+  display: none;
+  flex-direction: column;
+  z-index: 900;
+  overflow: hidden;
+}
+body.ide-mode #aia-mmd-widget { display: none !important; }
+#aia-mmd-widget.visible { display: flex; }
+#aia-mmd-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #252540;
+  border-bottom: 1px solid #333;
+  font-size: 0.75rem;
+  color: #aaa;
+  user-select: none;
+}
+#aia-mmd-widget-close {
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: #666;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+#aia-mmd-widget-close:hover { color: #ccc; background: #333; }
+#aia-mmd-widget-body {
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#aia-mmd-widget-body .log-mermaid { background: transparent; padding: 0; }
+#aia-mmd-widget-body .log-mermaid svg { max-width: 100%; height: auto; }
 </style>
 </head>
 <body>
@@ -1832,6 +1947,67 @@ const input      = document.getElementById('chat-input');
 const sendBtn    = document.getElementById('send-btn');
 const slashMenu  = document.getElementById('slash-menu');
 
+// ── AIA Mermaid Widget ───────────────────────────────────────────
+function aiaMmdShow(def) {
+  if (document.body.classList.contains('ide-mode')) return;
+  const widget = document.getElementById('aia-mmd-widget');
+  const body   = document.getElementById('aia-mmd-widget-body');
+  if (!widget || !body) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'log-mermaid';
+  wrap.textContent = '⟳ generando…';
+  body.appendChild(wrap);
+  widget.classList.add('visible');
+  // Renderizado asíncrono
+  const id = 'mmd-w-' + Math.random().toString(36).slice(2);
+  mermaid.render(id, def).then(({ svg }) => {
+    wrap.innerHTML = svg;
+    const zoomBtn = document.createElement('span');
+    zoomBtn.className = 'log-zoom-btn mermaid-zoom';
+    zoomBtn.textContent = '🔍';
+    zoomBtn.title = 'Ampliar';
+    zoomBtn.onclick = () => showPlanPopup(def, wrap.innerHTML);
+    wrap.style.position = 'relative';
+    wrap.appendChild(zoomBtn);
+  }).catch(() => { wrap.textContent = def; });
+}
+
+function aiaMmdClear() {
+  const widget = document.getElementById('aia-mmd-widget');
+  const body   = document.getElementById('aia-mmd-widget-body');
+  if (body)   body.innerHTML = '';
+  if (widget) widget.classList.remove('visible');
+}
+
+// ── AIA Image Widget ─────────────────────────────────────────────
+const _AIA_IMG_RE_W = /\[AIA_IMG:([^\]]+)\]/g;
+
+function aiaImgShow(url) {
+  if (document.body.classList.contains('ide-mode')) return;
+  const widget = document.getElementById('aia-img-widget');
+  const body   = document.getElementById('aia-img-widget-body');
+  if (!widget || !body) return;
+  const img = document.createElement('img');
+  img.src = url.trim();
+  img.onclick = () => window.open(url.trim(), '_blank');
+  body.appendChild(img);
+  widget.classList.add('visible');
+}
+
+function aiaImgClear() {
+  const widget = document.getElementById('aia-img-widget');
+  const body   = document.getElementById('aia-img-widget-body');
+  if (body)   body.innerHTML = '';
+  if (widget) widget.classList.remove('visible');
+}
+
+/** Muestra en el widget los [AIA_IMG:url] encontrados en el texto; retorna el texto sin modificar. */
+function aiaImgExtract(text) {
+  _AIA_IMG_RE_W.lastIndex = 0;
+  text.replace(_AIA_IMG_RE_W, (_, url) => aiaImgShow(url));
+  return text;
+}
+
 // ── Boot ─────────────────────────────────────────────────────────
 async function init() {
   mermaid.initialize({ startOnLoad: false, theme: 'dark' });
@@ -1843,6 +2019,7 @@ async function init() {
     webCommands = await cmdsRes.json();
     const info = await infoRes.json();
     bannerInfo.textContent = `aia@${info.version} · Ollama: ${info.model} · ${info.cwd}`;
+    if (info.modColor) _modColor = info.modColor;
   } catch(e) {
     mods = [{ name:'aia', key:'', displayName:'AiA', banner:'', color:'#7f8c8d', colorDim:'#2c3e50' }];
   }
@@ -2108,23 +2285,21 @@ function addFeedbackBar(wrap, question, answerFn, planFn) {
   wrap.appendChild(bar);
 }
 
-/// Rellena un elemento .msg-bubble con texto, imágenes [AIA_IMG:url] y archivos [AIA_FILE:/path]
+/// Rellena un elemento .msg-bubble con texto y archivos [AIA_FILE:/path]
+/// Las imágenes [AIA_IMG:url] se redirigen al widget global (aiaImgShow)
 function fillBubble(el, text, isAi = false) {
   const TOKEN_RE = /\[AIA_IMG:([^\]]+)\]|\[AIA_FILE:([^\]]+)\]/g;
   const isIde    = document.body.classList.contains('ide-mode');
   el.innerHTML   = '';
 
-  // Función auxiliar: renderiza tokens (img + file chips) en un contenedor
+  // Función auxiliar: renderiza tokens (file chips) en un contenedor; imágenes van al widget
   function _renderTokens(container, raw, chipsTarget) {
     let last = 0, m;
     TOKEN_RE.lastIndex = 0;
     while ((m = TOKEN_RE.exec(raw)) !== null) {
       if (m.index > last) container.appendChild(document.createTextNode(raw.slice(last, m.index)));
       if (m[1]) {
-        const img = document.createElement('img');
-        img.src = m[1];
-        img.style.cssText = 'max-width:100%;border-radius:6px;margin-top:0.4rem;display:block';
-        container.appendChild(img);
+        aiaImgShow(m[1]); // → widget global, no inline
       } else if (m[2]) {
         const path  = m[2].trim();
         const fname = path.split('/').pop();
@@ -2189,9 +2364,11 @@ function addMsg(role, text, startTime) {
 
 // ── Log panel en vivo ─────────────────────────────────────────────
 function classifyLog(entry) {
-  if (entry.startsWith('PLAN>>'))   return 'log-plan';
-  if (entry.includes('LLM>>'))      return 'log-llm';
-  if (entry.startsWith('RESULT>>')) return 'log-result';
+  if (entry.startsWith('PLAN>>'))              return 'log-plan';
+  if (/^PENSAMIENTO\s+\d+>>/.test(entry))      return 'log-thought';
+  if (entry.startsWith('Pensamiento Respuesta ?>')) return 'log-think-answer';
+  if (entry.includes('LLM>>'))                 return 'log-llm';
+  if (entry.startsWith('RESULT>>'))            return 'log-result';
   if (entry.includes('>>mcp.'))     return 'log-mcp';
   return 'log-other';
 }
@@ -2207,8 +2384,11 @@ function planToMermaid(planText) {
 
 function _fmtElapsed(ms) {
   if (ms < 1000) return ms + 'ms';
-  const s = (ms / 1000).toFixed(1);
-  return s + 's';
+  const s = ms / 1000;
+  if (s < 60) return s.toFixed(1) + 's';
+  const m = Math.floor(s / 60);
+  const rem = (s % 60).toFixed(0).padStart(2, '0');
+  return `${m}m${rem}s`;
 }
 
 function _addTimingBadge(bubble, startTime) {
@@ -2228,7 +2408,41 @@ function createLiveAiMsg(startTime) {
   label.className = 'msg-label';
   label.textContent = currentMod?.displayName || 'AiA';
 
-  // Panel de logs colapsado por defecto, se actualiza en vivo
+  // ── Panel 🧠 Pensamiento (canal think, separado de pasos) ──
+  const thinkDetails = document.createElement('details');
+  thinkDetails.className = 'log-panel think-panel';
+  const thinkSummary = document.createElement('summary');
+  thinkSummary.className = 'log-summary';
+  const thinkToggle = document.createElement('span');
+  thinkToggle.className = 'log-toggle';
+  thinkToggle.textContent = '▶ ';
+  const thinkIcon = document.createElement('span');
+  thinkIcon.textContent = '🧠 ';
+  const thinkLabel = document.createElement('span');
+  thinkLabel.className = 'log-count';
+  thinkLabel.textContent = 'Pensamiento';
+  const thinkCountEl = document.createElement('span');
+  thinkCountEl.style.cssText = 'color:var(--text-dim);font-size:0.8rem;margin-left:6px;';
+  thinkCountEl.textContent = '';
+  let thinkCount = 0;
+  const thinkSpinner = document.createElement('span');
+  thinkSpinner.className = 'log-think-spinner';
+  thinkSpinner.style.marginLeft = '6px';
+  thinkSpinner.textContent = '⟳';
+  thinkSummary.appendChild(thinkToggle);
+  thinkSummary.appendChild(thinkIcon);
+  thinkSummary.appendChild(thinkLabel);
+  thinkSummary.appendChild(thinkCountEl);
+  thinkSummary.appendChild(thinkSpinner);
+  thinkDetails.addEventListener('toggle', () => {
+    thinkToggle.textContent = thinkDetails.open ? '▼ ' : '▶ ';
+  });
+  thinkDetails.appendChild(thinkSummary);
+  const thinkBody = document.createElement('div');
+  thinkBody.className = 'log-body';
+  thinkDetails.appendChild(thinkBody);
+
+  // ── Panel Pasos (canal log) ──
   const details = document.createElement('details');
   details.className = 'log-panel';
 
@@ -2265,6 +2479,7 @@ function createLiveAiMsg(startTime) {
   dots.innerHTML = '<span></span><span></span><span></span>';
 
   wrap.appendChild(label);
+  wrap.appendChild(thinkDetails);
   wrap.appendChild(details);
   wrap.appendChild(dots);
   messages.appendChild(wrap);
@@ -2274,6 +2489,36 @@ function createLiveAiMsg(startTime) {
   const servers = new Set();
   const _planEntries = [];
 
+  // ── appendThink: recibe entradas del canal think (🧠 Pensamiento) ──
+  function appendThink(entry) {
+    const cls = /^PENSAMIENTO\s+\d+>>/.test(entry) ? 'log-thought'
+               : entry.startsWith('Pensamiento Respuesta ?>') ? 'log-think-answer'
+               : 'log-other';
+    const el = document.createElement('div');
+    el.className = `log-entry ${cls}`;
+    if (cls === 'log-thought') {
+      thinkCount++;
+      thinkCountEl.textContent = ` · ${thinkCount} paso${thinkCount !== 1 ? 's' : ''}`;
+      const num = (entry.match(/^PENSAMIENTO\s+(\d+)>>/) || [])[1] || '';
+      el.textContent = (num ? `${num}. ` : '') + entry.replace(/^PENSAMIENTO\s+\d+>>\s*/, '');
+    } else if (cls === 'log-think-answer') {
+      const raw = entry.replace(/^Pensamiento Respuesta \?>\s*/, '');
+      el.textContent = aiaImgExtract(raw); // muestra imágenes en widget y conserva el texto
+      // Pensamiento terminó → quitar spinner y poner 💡
+      if (thinkSpinner.parentNode) {
+        thinkSpinner.remove();
+        const doneEl = document.createElement('span');
+        doneEl.textContent = ' 💡';
+        doneEl.style.color = _modColor;
+        thinkSummary.appendChild(doneEl);
+      }
+    } else {
+      el.textContent = entry;
+    }
+    thinkBody.appendChild(el);
+    scrollDown();
+  }
+
   function _updateSummary() {
     countEl.textContent = `${count} paso${count !== 1 ? 's' : ''}`;
     if (servers.size) {
@@ -2282,9 +2527,29 @@ function createLiveAiMsg(startTime) {
   }
 
   function appendLog(entry) {
-    count++;
     _planEntries.push(entry);
     const cls = classifyLog(entry);
+
+    // PENSAMIENTO N>>: anidar dentro de la entrada sequential-thinking, no como paso separado
+    if (cls === 'log-thought') {
+      if (_seqThinkSubEl) {
+        _seqThinkCount++;
+        const t = document.createElement('div');
+        t.className = 'log-thought-sub';
+        const num = (entry.match(/^PENSAMIENTO\s+(\d+)>>/) || [])[1] || _seqThinkCount;
+        t.textContent = `${num}. ` + entry.replace(/^PENSAMIENTO\s+\d+>>\s*/, '');
+        _seqThinkSubEl.appendChild(t);
+        // Actualizar contador en el badge
+        if (_seqThinkBadge) {
+          _seqThinkBadge.countEl.textContent = `${_seqThinkCount} pensamiento${_seqThinkCount !== 1 ? 's' : ''}`;
+        }
+        scrollDown();
+      }
+      return; // no agregar al flujo principal de pasos
+    }
+
+
+    count++;
 
     // Rastrear servidores MCP
     if (cls === 'log-mcp') {
@@ -2341,33 +2606,16 @@ function createLiveAiMsg(startTime) {
     if (cls === 'log-plan') {
       const mermaidDef = planToMermaid(entry);
       if (mermaidDef) {
-        const mermaidEl = document.createElement('div');
-        mermaidEl.className = 'log-mermaid';
-        const id = 'mmd-' + Math.random().toString(36).slice(2);
-        mermaid.render(id, mermaidDef).then(({ svg }) => {
-          mermaidEl.innerHTML = svg;
-          // Botón lupa sobre el diagrama
-          const zoomBtn = document.createElement('span');
-          zoomBtn.className = 'log-zoom-btn mermaid-zoom';
-          zoomBtn.textContent = '🔍';
-          zoomBtn.title = 'Ampliar diagrama';
-          zoomBtn.onclick = () => showPlanPopup(entry, mermaidEl.innerHTML);
-          mermaidEl.style.position = 'relative';
-          mermaidEl.appendChild(zoomBtn);
-        }).catch(() => {
-          mermaidEl.textContent = entry;
-          mermaidEl.className = 'log-entry log-plan';
-        });
-        body.appendChild(mermaidEl);
+        aiaMmdShow(mermaidDef); // → widget flotante asíncrono, no inline
         _updateSummary();
-        scrollDown();
         return;
       }
     }
 
     const el = document.createElement('div');
     el.className = `log-entry ${cls}`;
-    el.textContent = entry;
+    el.textContent = aiaImgExtract(entry); // extrae [AIA_IMG:...] al widget
+
     body.appendChild(el);
     _updateSummary();
     scrollDown();
@@ -2385,7 +2633,18 @@ function createLiveAiMsg(startTime) {
     scrollDown();
   }
 
-  return { wrap, appendLog, finalize };
+  function finalizeThink() {
+    // Si el spinner sigue ahí (no hubo "Pensamiento Respuesta ?>"), quitarlo
+    if (thinkSpinner.parentNode) {
+      thinkSpinner.remove();
+      const doneEl = document.createElement('span');
+      doneEl.textContent = ' 💡';
+      doneEl.className = 'log-think-done';
+      thinkSummary.appendChild(doneEl);
+    }
+  }
+
+  return { wrap, appendLog, appendThink, finalize, finalizeThink };
 }
 
 function addSystemMsg(text) {
@@ -2511,25 +2770,32 @@ async function send() {
       for (const ev of parseSSE(decoder.decode(value, { stream: true }))) {
         if (ev.type === 'log') {
           liveMsg.appendLog(ev.data.entry);
+        } else if (ev.type === 'think') {
+          liveMsg.appendThink(ev.data.entry);
         } else if (ev.type === 'response') {
           const resp = ev.data.response;
           if (resp === '__watch__') { liveMsg.wrap.remove(); startWatch(); return; }
+          // Mostrar respuesta inmediatamente; el stream sigue para recibir logs del planning
           liveMsg.finalize(resp || '(sin respuesta)');
-          return;
+        } else if (ev.type === 'done') {
+          liveMsg.finalizeThink(); // quitar spinner si planning no generó "Pensamiento Respuesta ?>"
+          return; // planning terminó, cerrar stream
         }
       }
     }
-    liveMsg.finalize('(sin respuesta)');
+    liveMsg?.finalizeThink?.();
+    liveMsg?.finalize('(sin respuesta)');
 
   } catch(e) {
     if (e.name === 'AbortError' && _chatAbortReason) {
       // Interrupción intencional
       if (liveMsg) {
+        liveMsg.finalizeThink?.();
         liveMsg.appendLog('Interrupted ?> ' + _chatAbortReason.reason);
         liveMsg.finalize('❗ ' + _chatAbortReason.display);
       }
     } else {
-      if (liveMsg) liveMsg.finalize('Error de conexión: ' + e.message);
+      if (liveMsg) { liveMsg.finalizeThink?.(); liveMsg.finalize('Error de conexión: ' + e.message); }
       else addMsg('ai', 'Error de conexión: ' + e.message);
     }
   } finally {
@@ -3077,6 +3343,8 @@ function mqRenderVal(v, depth) {
   return s;
 }
 
+let _modColor = '#ff8700'; // color del mod activo, actualizado desde /api/info
+
 // ── IDE ───────────────────────────────────────────────────────────
 let _ideRoot = null;       // ruta raíz cargada
 let _openTabs = [];        // [{path, name, ext, content}]
@@ -3109,6 +3377,7 @@ async function ideInit() {
     sb.textContent = `v${info.version}`;
     sb.title = `aia@${info.version}`;
   }
+  if (info.modColor) _modColor = info.modColor;
   if (_ideRoot) { ideRenderTree(_ideRoot); return; }
   _ideRoot = info.cwd || '/';
   ideLoadDir(_ideRoot, document.getElementById('file-tree'), 0, true);
@@ -3884,6 +4153,24 @@ init();
   );
 })();
 </script>
+
+<!-- AIA Mermaid Widget -->
+<div id="aia-mmd-widget">
+  <div id="aia-mmd-widget-header">
+    <span>🗺 Plan</span>
+    <span id="aia-mmd-widget-close" onclick="aiaMmdClear()">✕</span>
+  </div>
+  <div id="aia-mmd-widget-body"></div>
+</div>
+
+<!-- AIA Image Widget -->
+<div id="aia-img-widget">
+  <div id="aia-img-widget-header">
+    <span>🖼 Imágenes</span>
+    <span id="aia-img-widget-clear" onclick="aiaImgClear()">✕ limpiar</span>
+  </div>
+  <div id="aia-img-widget-body"></div>
+</div>
 
 <!-- IDE: Statusbar -->
 <div id="ide-statusbar">

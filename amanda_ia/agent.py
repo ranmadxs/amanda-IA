@@ -23,7 +23,7 @@ logging.basicConfig(
 logger = logging.getLogger("aia")
 
 from importlib.resources import files
-from ollama import chat as ollama_chat, generate as ollama_generate
+from amanda_ia.llm_client import llm_chat, llm_generate, set_llm_hooks
 from prompt_toolkit import Application
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.buffer import Buffer
@@ -96,6 +96,7 @@ console = Console()
 
 
 OLLAMA_MODEL = os.environ.get("AIA_OLLAMA_MODEL", "llama3.1:8b")
+COAGITATOR_MODEL = os.environ.get("AIA_COAGITATOR_MODEL", OLLAMA_MODEL)
 # num_ctx: M1 Pro 16GB + 14.8B Q4_K_M (~9.5GB modelo) → ~4GB libres para KV cache.
 # KV cache ≈ 128KB/tok (GQA 14B) → 16384 tok = ~2GB, deja 2GB de margen.
 # Configurable con AIA_OLLAMA_NUM_CTX si se cambia el modelo.
@@ -181,7 +182,14 @@ Responde siempre en español. Para saludos (hola, buenos días) responde breve y
             elif name in SERVER_PROMPT_HINTS:
                 hints.append(SERVER_PROMPT_HINTS[name].format(cwd=cwd))
 
-    parts = [SYSTEM_PROMPT_BASE]
+    import datetime as _dt
+    _today = _dt.date.today().strftime("%d de %B de %Y").replace(
+        "January","enero").replace("February","febrero").replace("March","marzo").replace(
+        "April","abril").replace("May","mayo").replace("June","junio").replace(
+        "July","julio").replace("August","agosto").replace("September","septiembre").replace(
+        "October","octubre").replace("November","noviembre").replace("December","diciembre")
+    _date_hint = f"Fecha actual: {_today}. El año en curso es {_dt.date.today().year}. Los datos de {_dt.date.today().year} SÍ existen y DEBEN obtenerse con las tools disponibles."
+    parts = [SYSTEM_PROMPT_BASE + f"\n\n{_date_hint}"]
     if hints:
         parts.append("\n\n" + "\n\n".join(f"IMPORTANTE: {h}" for h in hints))
     # Extra del modo activo (ej: spanglish para Warhammer 40K)
@@ -296,7 +304,7 @@ def _translate_to_english(text: str) -> str:
     if not text or not text.strip():
         return text
     try:
-        r = ollama_chat(
+        r = llm_chat(
             model=OLLAMA_MODEL,
             messages=[
                 {
@@ -304,6 +312,7 @@ def _translate_to_english(text: str) -> str:
                     "content": f"Traduce SOLO al inglés, sin explicaciones. Responde únicamente con la traducción:\n{text.strip()}",
                 }
             ],
+            purpose="translate_en",
             options=_OLLAMA_OPTIONS,
         )
         out = (getattr(r.message, "content", None) or "").strip()
@@ -672,7 +681,7 @@ def _compress_history(history: list[dict], phase: dict[str, str] | None) -> list
                 snippet = content[:200] + "..." if len(content) > 200 else content
                 lines.append(f"[Herramienta]: {snippet}")
 
-        r = ollama_chat(
+        r = llm_chat(
             model=OLLAMA_MODEL,
             messages=[
                 {
@@ -683,6 +692,7 @@ def _compress_history(history: list[dict], phase: dict[str, str] | None) -> list
                     ),
                 }
             ],
+            purpose="compress_context",
             options=_OLLAMA_OPTIONS,
         )
         summary = (getattr(r.message, "content", None) or "").strip() or "Conversación previa resumida."
@@ -714,36 +724,23 @@ def _think(phase: dict, entry: str) -> None:
 
 
 def _plan_execution(message: str, mcp_tools: list, phase: dict) -> None:
-    """Planifica usando MCP sequential-thinking (global, todos los modos).
-    El LLM genera los pasos en texto; nosotros llamamos sequentialthinking con cada uno.
+    """Pensamiento: COAGITATOR_MODEL genera los pasos, cada uno se registra en sequential-thinking
+    y se emite al canal pensamiento paso a paso.
     """
     _agil_emit("PLAN_EXEC", f"tools={len(mcp_tools)} msg={message[:60]!r}")
-    # Construir descripción rica de cada tool (nombre + descripción + parámetros)
-    tool_lines = []
-    for t in mcp_tools:
-        fn = t.get("function", {})
-        name = fn.get("name", "")
-        desc = fn.get("description", "")
-        if not name:
-            continue
-        params = fn.get("parameters", {}).get("properties", {})
-        required = fn.get("parameters", {}).get("required", [])
-        if params:
-            param_parts = []
-            for p, meta in params.items():
-                p_type = meta.get("type", "")
-                p_desc = meta.get("description", "")
-                req = "" if p in required else "?"
-                param_parts.append(f"{p}{req}: {p_type}" + (f" ({p_desc})" if p_desc else ""))
-            tool_lines.append(f"- {name}({', '.join(param_parts)}): {desc}")
-        else:
-            tool_lines.append(f"- {name}(): {desc}" if desc else f"- {name}()")
-    tools_context = "\n".join(tool_lines) if tool_lines else "ninguna"
-
     try:
         phase["value"] = "Planificando"
 
-        # Buscar sequential-thinking en todos los servidores (global, independiente del modo)
+        # ── Cache HIT ──────────────────────────────────────────────────
+        cached = plan_cache_get(message)
+        if cached:
+            _agil_emit("PLAN_CACHE_HIT", f"msg={message[:60]!r}")
+            for entry in cached.split("\n"):
+                if entry:
+                    _think(phase, entry)
+            _think(phase, "🎯 CACHE HIT")
+            return
+
         all_servers = get_mcp_servers()
         st_server = next(
             (s for s in all_servers if s.get("name") == "sequential-thinking" and s.get("enabled", True)),
@@ -751,170 +748,82 @@ def _plan_execution(message: str, mcp_tools: list, phase: dict) -> None:
         )
 
         if not st_server:
-            _plan_execution_llm(message, tools_context, phase)
+            _plan_execution_llm(message, mcp_tools, phase)
             return
 
-        # Paso 1: LLM genera los pasos concretos con calls MCP y parámetros inferidos
-        steps_response = ollama_chat(model=OLLAMA_MODEL, options=_OLLAMA_OPTIONS, messages=[
-            {"role": "system", "content": (
-                "Eres un planificador de tareas de IA. Dado el prompt y las tools disponibles, "
-                "lista los pasos de ejecución. Un paso por línea, sin numeración.\n"
-                "Cuando uses una tool, escríbela con los parámetros inferidos del prompt: "
-                "mcp.<server>.<tool>(param=valor, ...). Si no sabés el valor exacto, usá un placeholder.\n"
-                "El ÚLTIMO paso siempre debe ser 'LLM sintetiza los resultados y responde al usuario'.\n"
-                "Ejemplo para 'temperatura de Santiago':\n"
-                "mcp.temperatura.search_location(query='Santiago')\n"
-                "mcp.temperatura.get_current_conditions(latitude=..., longitude=...)\n"
-                "LLM sintetiza los resultados y responde al usuario\n"
-                "Solo los pasos, sin texto adicional."
-            )},
-            {"role": "user", "content": f"Tools disponibles:\n{tools_context}\n\nPrompt del usuario: {message}"},
-        ])
-        raw_steps = (getattr(steps_response.message, "content", None) or "").strip()
-        steps = [s.strip().lstrip("-•*0123456789.) ") for s in raw_steps.split("\n") if s.strip()][:5]
+        # Lista de tools para el planificador
+        tool_names = [t.get("function", {}).get("name", "") for t in mcp_tools if t.get("function", {}).get("name")]
+        tools_list = ", ".join(tool_names) if tool_names else "ninguna"
+
+        # COAGITATOR_MODEL genera los pasos del plan
+        steps_response = llm_chat(
+            model=COAGITATOR_MODEL,
+            options=_OLLAMA_OPTIONS,
+            purpose="plan_steps",
+            messages=[
+                {"role": "system", "content": (
+                    "Eres un planificador. Dado un prompt y las tools MCP disponibles, "
+                    "lista los pasos de ejecución. Un paso por línea, sin numeración ni viñetas.\n"
+                    "Formato de paso con tool: mcp.<tool>(param=valor)\n"
+                    "Último paso siempre: LLM responde al usuario\n"
+                    "Solo los pasos, sin texto adicional. Máximo 5 pasos."
+                )},
+                {"role": "user", "content": f"Tools disponibles: {tools_list}\n\nPregunta: {message}"},
+            ],
+        )
+        raw = (getattr(steps_response.message, "content", None) or "").strip()
+        steps = [s.strip().lstrip("-•*0123456789.) ") for s in raw.split("\n") if s.strip()][:5]
 
         if not steps:
-            _plan_execution_llm(message, tools_context, phase)
-            return
+            steps = ["LLM responde al usuario"]
 
-        # Buscar memory MCP para guardar resultados
-        mem_server = next(
-            (s for s in all_servers if s.get("name") == "memory" and s.get("enabled", True)),
-            None,
-        )
-        server_by_name = {s["name"]: s for s in all_servers if s.get("name")}
+        # Reemplazar "mcp.toolname(" por "servidor.toolname(" en cada paso
+        import re as _re
+        def _resolve_step(s: str) -> str:
+            def _repl(m):
+                tool = m.group(1)
+                srv = get_server_name_for_tool(tool) or "mcp"
+                return f"{srv}.{tool}("
+            return _re.sub(r"mcp\.([\w-]+)\(", _repl, s)
+        steps = [_resolve_step(s) for s in steps]
 
-        # Paso 2: registrar pensamientos en sequential-thinking + lanzar MCPs en paralelo
-        import concurrent.futures as _futures
-        import ast as _ast
-
-        def _parse_args(raw: str) -> dict:
-            args: dict = {}
-            for kv in re.finditer(r'(\w+)\s*=\s*([^,)]+)', raw):
-                k, v = kv.group(1), kv.group(2).strip()
-                try:
-                    args[k] = _ast.literal_eval(v)
-                except Exception:
-                    args[k] = v.strip("'\"")
-            return args
-
-        def _parse_mcp_call(text: str):
-            """Parsea call MCP en cualquiera de estos formatos:
-            - mcp.server.tool(k=v, ...)  → usa server del texto
-            - tool_name(k=v, ...)        → busca server en registry
-            Retorna (server, tool, args) o None.
-            """
-            # Formato explícito: mcp.server.tool(...)
-            m = re.search(r'mcp\.(\w+)\.(\w+)\(([^)]*)\)', text)
-            if m:
-                srv, tool, raw = m.group(1), m.group(2), m.group(3)
-                return get_server_name_for_tool(tool) or srv, tool, _parse_args(raw)
-            # Formato corto: tool_name(k=v, ...) — buscar servidor en registry
-            m = re.search(r'\b([a-z]\w*)\(([^)]*)\)', text)
-            if m:
-                tool, raw = m.group(1), m.group(2)
-                srv = get_server_name_for_tool(tool)
-                if srv:
-                    return srv, tool, _parse_args(raw)
-            return None
-
-        thoughts: list[str] = []
+        # Registrar cada paso en sequential-thinking y emitir al canal pensamiento
         total = len(steps)
-        mcp_futures: dict = {}  # future → (srv_name, tool_name)
+        last_result = ""
+        think_entries: list[str] = []
+        for i, step in enumerate(steps):
+            last_result = call_tool_on_server(st_server, "sequentialthinking", {
+                "thought": step,
+                "thoughtNumber": i + 1,
+                "totalThoughts": total,
+                "nextThoughtNeeded": i < total - 1,
+            })
+            entry = f"PENSAMIENTO {i + 1}/{total}>> {step}"
+            _think(phase, entry)
+            think_entries.append(entry)
 
-        with _futures.ThreadPoolExecutor(max_workers=8) as executor:
-            for i, step in enumerate(steps):
-                # Registrar en sequential-thinking
-                call_tool_on_server(st_server, "sequentialthinking", {
-                    "thought": step,
-                    "thoughtNumber": i + 1,
-                    "totalThoughts": total,
-                    "nextThoughtNeeded": i < total - 1,
-                })
-                thoughts.append(step)
-                # Reemplazar paso final genérico del LLM con formato estándar
-                if re.search(r'LLM\s+sintetiza|responde al usuario', step, re.IGNORECASE):
-                    display = f"Generando Respuesta ?> LLM>>Ollama.{OLLAMA_MODEL}"
-                else:
-                    display = step[:200] + ("…" if len(step) > 200 else "")
-                _think(phase, f"PENSAMIENTO {i + 1}>> {display}")
+        seq_entry = ""
+        if last_result and last_result.strip():
+            seq_entry = f"SEQUENTIAL>> {last_result.strip()}"
+            _think(phase, seq_entry)
+            think_entries.append(seq_entry)
 
-                # Si el paso contiene un call MCP concreto, ejecutarlo en paralelo
-                parsed = _parse_mcp_call(step)
-                if parsed:
-                    srv_name, tool_name, tool_args = parsed
-                    # El LLM puede inventar nombres de servidor: resolver por nombre de tool real
-                    real_srv_name = get_server_name_for_tool(tool_name) or srv_name
-                    srv = server_by_name.get(real_srv_name) or server_by_name.get(srv_name)
-                    if srv:
-                        phase.setdefault("mcp_log", []).append(_fmt_tool_call(real_srv_name, tool_name, tool_args))
-                        fut = executor.submit(call_tool_on_server, srv, tool_name, tool_args)
-                        mcp_futures[fut] = (real_srv_name, tool_name)
-
-            # Paso 3: recopilar resultados y guardar en memory
-            mcp_results: list[tuple[str, str]] = []  # [(label, result)]
-            for fut in _futures.as_completed(mcp_futures):
-                srv_name, tool_name = mcp_futures[fut]
-                try:
-                    result = fut.result() or ""
-                except Exception as e:
-                    result = f"Error: {e}"
-                label = f"{srv_name}.{tool_name}"
-                mcp_results.append((label, result))
-                phase.setdefault("mcp_log", []).append(f"RESULT>> {result[:400]}{'…' if len(result) > 400 else ''}")
-                # Guardar en memory MCP
-                if mem_server:
-                    try:
-                        call_tool_on_server(mem_server, "create_entities", {"entities": [
-                            {"name": label, "entityType": "plan_result", "observations": [result[:800]]}
-                        ]})
-                        phase.setdefault("memory_log", []).append(f"MCP_MEM_WRITE>> create_entity: {label}")
-                    except Exception:
-                        pass
-
-        # Paso 4: los resultados MCP se guardan en memory; "Pensamiento Respuesta" la emite agent_api con la respuesta real del LLM
-        # (no sintetizamos aquí para evitar duplicar respuestas y perder imágenes/gráficos)
-
-        # Paso 5: Sintetizar en formato PLAN>> para el mermaid (va al canal log normal)
-        synth = ollama_chat(model=OLLAMA_MODEL, options=_OLLAMA_OPTIONS, messages=[
-            {"role": "system", "content": (
-                "Sintetiza en UNA SOLA LÍNEA los pasos de ejecución.\n"
-                "Formato: pasos separados por ->. Posibles: LLM, MCP(nombre_operacion).\n"
-                "Solo la línea, sin texto adicional."
-            )},
-            {"role": "user", "content": "\n".join(f"{i+1}. {t}" for i, t in enumerate(thoughts))},
-        ])
-        plan = (getattr(synth.message, "content", None) or "").strip().split("\n")[0].strip()
-        for noise in ("PLAN>>", "PROMPT ->", "PROMPT->", "-> RESPUESTA", "->RESPUESTA"):
-            plan = plan.replace(noise, "").strip().strip("->").strip()
-        if plan:
-            phase.setdefault("log", []).append(f"PLAN>> {plan}")
+        # ── Guardar en cache ───────────────────────────────────────────
+        plan_cache_set(message, "\n".join(think_entries))
 
     except Exception as e:
         logger.debug("_plan_execution error: %s", e)
 
 
-def _plan_execution_llm(message: str, tools_context: str, phase: dict) -> None:
-    """Fallback: LLM genera plan en una línea (sin sequential-thinking)."""
+def _plan_execution_llm(message: str, mcp_tools: list, phase: dict) -> None:
+    """Fallback sin sequential-thinking: emite tools disponibles como plan al pensamiento."""
     _agil_emit("PLAN_EXEC_LLM", f"msg={message[:60]!r}")
-    try:
-        phase.setdefault("log", []).append(f"Planificación ?> LLM>>Ollama.{OLLAMA_MODEL} (plan)")
-        response = ollama_chat(model=OLLAMA_MODEL, options=_OLLAMA_OPTIONS, messages=[
-            {"role": "system", "content": (
-                "Eres un planificador. Dado un prompt y tools disponibles, "
-                "describe en UNA SOLA LÍNEA los pasos intermedios.\n"
-                "Formato: pasos separados por ->. Posibles: LLM, MCP(nombre_operacion).\n"
-                "Solo la línea, sin texto adicional."
-            )},
-            {"role": "user", "content": f"Tools disponibles:\n{tools_context}\n\nPrompt: {message}"},
-        ])
-        plan = (getattr(response.message, "content", None) or "").strip().split("\n")[0].strip()
-        for noise in ("PROMPT ->", "PROMPT->", "-> RESPUESTA", "->RESPUESTA"):
-            plan = plan.replace(noise, "").strip().strip("->").strip()
-        if plan:
-            phase.setdefault("log", []).append(f"PLAN>> {plan}")
-    except Exception:
-        pass
+    tool_names = [t.get("function", {}).get("name", "") for t in mcp_tools if t.get("function", {}).get("name")]
+    if tool_names:
+        plan = " -> ".join(tool_names[:6]) + (" -> …" if len(tool_names) > 6 else "")
+        _think(phase, f"PENSAMIENTO 1/1>> {plan}")
+    else:
+        _think(phase, "PENSAMIENTO 1/1>> LLM responde al usuario")
 
 
 def process(message: str, phase: dict[str, str] | None = None) -> str:
@@ -971,7 +880,13 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
                 "[bold]🌡️  Clima[/bold]\n"
                 '  "¿Qué temperatura hay en Santiago?"\n'
                 '  "¿Cómo está el tiempo en Buenos Aires?"\n'
-                '  "Temperatura en Lima"\n\n'
+                '  "Pronóstico para los próximos 7 días en Valparaíso"\n\n'
+                "[bold]⚔️  Warhammer 40K (modo warhammer)[/bold]\n"
+                '  "Dame las facciones disponibles"\n'
+                '  "Dame las unidades de los Necrons"\n'
+                '  "Dame las estratagemas de los Space Marines"\n'
+                '  "Estadísticas de un Rhino"\n'
+                '  "Datos de Saint Celestine"\n\n'
                 "[bold]💬  Conversación general[/bold]\n"
                 '  "Explícame cómo funciona el protocolo MQTT"\n'
                 '  "Resume este texto: ..."\n'
@@ -1003,10 +918,10 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
             for m in loaded:
                 name = m.model or m.name
                 if name:
-                    ollama_generate(model=name, prompt="", keep_alive=0)
+                    llm_generate(model=name, prompt="", keep_alive=0)
                     unloaded.append(name)
             if not unloaded:
-                ollama_generate(model=OLLAMA_MODEL, prompt="", keep_alive=0)
+                llm_generate(model=OLLAMA_MODEL, prompt="", keep_alive=0)
                 unloaded = [OLLAMA_MODEL]
             return f"Ollama descargado ({', '.join(unloaded)})."
 
@@ -1117,6 +1032,42 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
         if not selected:
             selected = _keyword_fallback(message, pool)
 
+    # Instalar hooks ANTES de cargar tools y lanzar el hilo de planificación,
+    # para que cualquier llamada MCP/LLM dentro del hilo ya tenga los callbacks activos.
+    def _hook_on_call(name: str, args: dict) -> None:
+        srv = get_server_name_for_tool(name)
+        if phase is not None:
+            phase["value"] = f"mcp_exe@{srv}" if srv else "mcp_exe"
+            phase.setdefault("mcp_log", []).append(_fmt_tool_call(srv, name, args))
+
+    def _hook_on_result(name: str, result: str) -> None:
+        if phase is not None:
+            _r = result or ""
+            phase.setdefault("mcp_log", []).append(f"RESULT>> {_r[:400]}{'…' if len(_r) > 400 else ''}")
+
+    def _hook_on_llm_call(model: str, purpose: str, messages: list) -> None:
+        if phase is not None:
+            phase.setdefault("llm_log", []).append(
+                f"CALL>> model={model} purpose={purpose!r} msgs={len(messages)}"
+            )
+
+    def _hook_on_llm_result(model: str, purpose: str, resp: object, elapsed_ms: float) -> None:
+        if phase is not None:
+            ec = getattr(resp, "eval_count", 0) or 0
+            pc = getattr(resp, "prompt_eval_count", 0) or 0
+            content = (getattr(getattr(resp, "message", None), "content", None) or "").strip()
+            phase.setdefault("llm_log", []).append(
+                f"RESULT>> model={model} purpose={purpose!r} "
+                f"time={elapsed_ms:.0f}ms out={ec}tok ctx={pc}tok\n{content}"
+            )
+
+    set_tool_hooks(_hook_on_call, _hook_on_result)
+    set_llm_hooks(_hook_on_llm_call, _hook_on_llm_result)
+    _set_memory_hook(lambda op, d: phase.setdefault("memory_log", []).append(f"{op}>> {d}") if phase is not None else None)
+    if phase is not None:
+        _agil_install(phase)
+        _agil_emit("PROCESS_START", f"msg={message[:80]!r} mode={_active_mode or 'general'}")
+
     # selected=None: builtin + todos los MCP. selected=[]: solo builtin.
     # selected=[...]: builtin + esos MCP. Siempre pasamos tools para que get_time funcione.
     tools = get_tools(selected)
@@ -1127,7 +1078,8 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
     mcp_load_failed = selected and len(selected) > 0 and len(mcp_tools) == 0
     logger.debug("process selected=%s mcp_tools=%s mcp_load_failed=%s", selected, [t.get("function",{}).get("name") for t in mcp_tools], mcp_load_failed)
 
-    # Planificación en paralelo: corre en thread separado para no bloquear la respuesta principal
+    # Planificación en paralelo — se lanza AQUÍ, lo antes posible (hooks ya instalados,
+    # tools ya conocidas). La compresión y el loop LLM corren mientras el plan avanza.
     if phase is not None:
         _mcp_tools_snapshot = list(mcp_tools)
         _plan_thread = _threading.Thread(
@@ -1149,24 +1101,6 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
     ] + _conversation_history + [
         {"role": "user", "content": message},
     ]
-
-    # Hooks para loguear MCP calls en tiempo real desde execute_tool (independiente del path LLM)
-    def _hook_on_call(name: str, args: dict) -> None:
-        srv = get_server_name_for_tool(name)
-        if phase is not None:
-            phase["value"] = f"mcp_exe@{srv}" if srv else "mcp_exe"
-            phase.setdefault("mcp_log", []).append(_fmt_tool_call(srv, name, args))
-
-    def _hook_on_result(name: str, result: str) -> None:
-        if phase is not None:
-            _r = result or ""
-            phase.setdefault("mcp_log", []).append(f"RESULT>> {_r[:400]}{'…' if len(_r) > 400 else ''}")
-
-    set_tool_hooks(_hook_on_call, _hook_on_result)
-    _set_memory_hook(lambda op, d: phase.setdefault("memory_log", []).append(f"{op}>> {d}") if phase is not None else None)
-    if phase is not None:
-        _agil_install(phase)
-        _agil_emit("PROCESS_START", f"msg={message[:80]!r} mode={_active_mode or 'general'}")
 
     try:
         last_tool_result = None
@@ -1219,7 +1153,7 @@ def process(message: str, phase: dict[str, str] | None = None) -> str:
             if phase is not None:
                 phase["value"] = "Generando Respuesta"  # noqa: B905
                 phase.setdefault("log", []).append(f"Generando Respuesta ?> LLM>>Ollama.{OLLAMA_MODEL}")  # noqa: B905
-            response = ollama_chat(model=OLLAMA_MODEL, messages=messages, tools=tools, options=_OLLAMA_OPTIONS)
+            response = llm_chat(model=OLLAMA_MODEL, messages=messages, tools=tools, options=_OLLAMA_OPTIONS, purpose="chat")
             msg = response.message
 
             # Emitir métricas de Ollama al canal agilidad

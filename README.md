@@ -151,18 +151,34 @@ cd aia-mcp && poetry run mcp all --http
 
 ### Warhammer 40K (Wahapedia)
 
+**Facciones y unidades:**
+- *Dame las facciones disponibles*
+- *Dame las unidades de los Necrons*
+- *Lista las unidades de Space Marines*
+- *¿Qué unidades tiene Adepta Sororitas?*
+
+**Estadísticas de unidades:**
 - *¿Cuáles son las estadísticas de un Rhino?*
 - *Dame los datos de Saint Celestine*
 - *Stats de un Space Marine*
 - *Información de un Carnifex de Tyranids*
 - *Estadísticas de Guilliman*
 
-### Temperatura (ciudades de Chile y otras)
+**Estratagemas:**
+- *Dame las estratagemas de los Space Marines*
+- *Estratagemas de Adeptus Custodes*
+- *¿Qué estratagemas tienen los Necrons?*
 
-- *¿Qué temperatura hay en Santiago?*
-- *¿Cómo está el clima en Santiago de Chile?*
+> **Cache:** Las consultas a Wahapedia se cachean en disco (`.aia/cache/wahapedia/`) por 60 días. La primera consulta de cada facción/unidad tarda unos segundos; las siguientes son instantáneas.
+
+### Temperatura (cobertura global — Open-Meteo)
+
+- *¿Qué temperatura hay en Santiago de Chile?*
+- *¿Cómo está el clima en Valparaíso?*
 - *Temperatura en Buenos Aires*
 - *¿Cuántos grados hay en Lima?*
+- *Pronóstico para los próximos 7 días en Concepción*
+- *¿Está lloviendo en Madrid?*
 
 ### Tinaja / Acumulador / Estanque (sensor en tiempo real)
 
